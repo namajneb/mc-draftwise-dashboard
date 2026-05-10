@@ -9,6 +9,15 @@ const LinkedInIcon = ({ size = 20 }) => (
   </svg>
 )
 
+const HeyReachIcon = ({ size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <circle cx="12" cy="12" r="10" fill="#0ea97a" opacity="0.15"/>
+    <path d="M8 9h2v6H8V9zm0 0c0-2.2 1.8-4 4-4s4 1.8 4 4" stroke="#0ea97a" strokeWidth="1.8" strokeLinecap="round" fill="none"/>
+    <path d="M14 12c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2z" fill="#0ea97a"/>
+    <path d="M16 15l2 2" stroke="#0ea97a" strokeWidth="1.8" strokeLinecap="round"/>
+  </svg>
+)
+
 const DASHBOARDS = [
   {
     path: '/linkedin-ads',
@@ -16,6 +25,16 @@ const DASHBOARDS = [
     description: 'Live ad performance, CTR, CPC, and spend tracking across LinkedIn campaigns.',
     icon: <LinkedInIcon size={20} />,
     iconColor: '#0A66C2',
+    tag: 'Live Data',
+    tagColor: '#3dbb7a',
+    available: true,
+  },
+  {
+    path: '/heyreach',
+    title: 'HeyReach Outreach',
+    description: 'LinkedIn outreach analytics — connection requests, acceptance rates, reply rates, and per-campaign breakdown.',
+    icon: <HeyReachIcon size={20} />,
+    iconColor: '#0ea97a',
     tag: 'Live Data',
     tagColor: '#3dbb7a',
     available: true,

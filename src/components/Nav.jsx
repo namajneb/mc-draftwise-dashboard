@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 
 const TABS = [
   { path: '/linkedin-ads', label: 'LinkedIn Ads' },
+  { path: '/heyreach',     label: 'HeyReach' },
 ]
 
 export default function Nav() {
