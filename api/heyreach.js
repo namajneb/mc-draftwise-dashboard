@@ -10,7 +10,11 @@ module.exports = async function handler(req, res) {
     const path = req.query.path;
     if (!path) return res.status(400).json({ error: "Missing path param" });
 
-    const url = `https://api.heyreach.io/api/public${path}`;
+    // internal=1 targets /api/ (internal ABP endpoints); default targets /api/public/
+    const base = req.query.internal === "1"
+      ? "https://api.heyreach.io/api"
+      : "https://api.heyreach.io/api/public";
+    const url = `${base}${path}`;
     const upstream = await fetch(url, {
       method: req.method === "GET" ? "GET" : "POST",
       headers: { "X-API-KEY": token, "Content-Type": "application/json" },

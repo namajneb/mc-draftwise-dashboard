@@ -17,8 +17,9 @@ const C = {
   blue:      "#579ed1",
 };
 
-async function hrFetch(path, body) {
-  const res = await fetch(`/api/heyreach?path=${encodeURIComponent(path)}`, {
+async function hrFetch(path, body, internal = false) {
+  const qs = `/api/heyreach?path=${encodeURIComponent(path)}${internal ? "&internal=1" : ""}`;
+  const res = await fetch(qs, {
     method: body !== undefined ? "POST" : "GET",
     headers: { "Content-Type": "application/json" },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -179,7 +180,7 @@ export default function HeyReachDashboard() {
         rawCampaigns.map(async c => {
           if (c.campaignAccountIds?.length) return c;
           try {
-            const res = await hrFetch(`/linkedInAccount/GetLinkedInAccountsForCampaign?campaignId=${c.id}`, undefined);
+            const res = await hrFetch(`/LinkedInAccount/GetLinkedInAccountsForCampaign?campaignId=${c.id}`, undefined, true);
             const accounts = res?.items || res?.accounts || res?.linkedInAccounts || (Array.isArray(res) ? res : []);
             const ids = accounts.map(a => a.id || a.accountId).filter(Boolean);
             return { ...c, campaignAccountIds: ids };
