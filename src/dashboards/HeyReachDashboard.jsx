@@ -156,6 +156,76 @@ function CampaignTable({ campaigns }) {
   );
 }
 
+function InsightsPanel({ insights, loading }) {
+  if (loading || !insights) {
+    return (
+      <div style={{ marginTop: 32 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Response Insights</div>
+        <div style={{ fontSize: 12, color: C.grey }}>Loading insights…</div>
+      </div>
+    );
+  }
+
+  const { titles, companies, allLeads } = insights;
+  const titleHeader = allLeads ? "Top Lead Job Titles" : "Top Responding Job Titles";
+  const companyHeader = allLeads ? "Top Lead Companies" : "Top Responding Companies";
+
+  if (!titles.length && !companies.length) {
+    return (
+      <div style={{ marginTop: 32 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Response Insights</div>
+        <div style={{ fontSize: 12, color: C.grey }}>No lead data available.</div>
+      </div>
+    );
+  }
+
+  const barMax = titles[0]?.count || 1;
+
+  return (
+    <div style={{ marginTop: 32 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>Response Insights</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+
+        {/* Job Titles */}
+        <div style={{ background: C.charcoal, borderRadius: 10, border: `1px solid ${C.border}`, padding: "18px 20px" }}>
+          <div style={{ fontSize: 10, color: C.grey, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>{titleHeader}</div>
+          {titles.slice(0, 10).map((t, i) => (
+            <div key={t.label} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ fontSize: 11, color: C.offWhite, fontFamily: "'Inter', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "75%" }}>{t.label}</span>
+                <span style={{ fontSize: 11, color: C.grey, fontFamily: "'Inter', sans-serif", flexShrink: 0 }}>{t.count}</span>
+              </div>
+              <div style={{ height: 3, borderRadius: 2, background: C.border }}>
+                <div style={{ height: 3, borderRadius: 2, background: C.blue, width: `${(t.count / barMax) * 100}%`, transition: "width 0.4s" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Companies */}
+        <div style={{ background: C.charcoal, borderRadius: 10, border: `1px solid ${C.border}`, padding: "18px 20px" }}>
+          <div style={{ fontSize: 10, color: C.grey, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>{companyHeader}</div>
+          {companies.slice(0, 10).map((c, i) => {
+            const cMax = companies[0]?.count || 1;
+            return (
+              <div key={c.label} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: C.offWhite, fontFamily: "'Inter', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "75%" }}>{c.label}</span>
+                  <span style={{ fontSize: 11, color: C.grey, fontFamily: "'Inter', sans-serif", flexShrink: 0 }}>{c.count}</span>
+                </div>
+                <div style={{ height: 3, borderRadius: 2, background: C.border }}>
+                  <div style={{ height: 3, borderRadius: 2, background: C.green, width: `${(c.count / cMax) * 100}%`, transition: "width 0.4s" }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 export default function HeyReachDashboard() {
   const [overallStats, setOverallStats]   = useState(null);
   const [campaigns, setCampaigns]         = useState([]);
@@ -164,6 +234,56 @@ export default function HeyReachDashboard() {
   const [error, setError]                 = useState(null);
   const [lastUpdated, setLastUpdated]     = useState(null);
   const [syncing, setSyncing]             = useState(false);
+  const [insights, setInsights]           = useState(null);
+  const [insightsLoading, setInsightsLoading] = useState(true);
+
+  const loadInsights = useCallback(async (rawCampaigns) => {
+    setInsightsLoading(true);
+    try {
+      const results = await Promise.all(
+        rawCampaigns.map(c =>
+          hrFetch("/campaign/GetLeads", { campaignId: c.id, offset: 0, limit: 500 })
+            .catch(() => null)
+        )
+      );
+
+      const repliedTitles = {}, repliedCompanies = {};
+      const allTitles = {}, allCompanies = {};
+
+      for (const res of results) {
+        // Handle multiple possible response shapes
+        const items = Array.isArray(res) ? res
+          : res?.items ?? res?.leads ?? res?.result?.items ?? res?.data ?? [];
+        for (const lead of items) {
+          const title   = (lead.position || lead.jobTitle || lead.headline || lead.title || "").trim();
+          const company = (lead.companyName || lead.company || lead.organizationName || "").trim();
+          if (title)   allTitles[title]     = (allTitles[title] || 0) + 1;
+          if (company) allCompanies[company] = (allCompanies[company] || 0) + 1;
+
+          const st = (lead.messageStatus || lead.status || "").toLowerCase();
+          if (st.includes("reply") || st.includes("replied")) {
+            if (title)   repliedTitles[title]     = (repliedTitles[title] || 0) + 1;
+            if (company) repliedCompanies[company] = (repliedCompanies[company] || 0) + 1;
+          }
+        }
+      }
+
+      const toSorted = obj => Object.entries(obj)
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count);
+
+      const hasReplied = Object.keys(repliedTitles).length > 0 || Object.keys(repliedCompanies).length > 0;
+      setInsights({
+        titles:    toSorted(hasReplied ? repliedTitles : allTitles),
+        companies: toSorted(hasReplied ? repliedCompanies : allCompanies),
+        allLeads:  !hasReplied,
+      });
+    } catch (e) {
+      setInsights({ titles: [], companies: [], allLeads: true });
+    } finally {
+      setInsightsLoading(false);
+    }
+  }, []);
 
   const loadData = useCallback(async (daysN) => {
     setLoading(true); setError(null);
@@ -202,14 +322,18 @@ export default function HeyReachDashboard() {
       ]);
 
       setOverallStats(overallRes?.overallStats || overallRes);
-      setCampaigns(rawCampaigns.map((c, i) => ({
+      const finalCampaigns = rawCampaigns.map((c, i) => ({
         ...c,
         stats: campaignStatsResults[i]?.overallStats || campaignStatsResults[i] || {},
-      })));
+      }));
+      setCampaigns(finalCampaigns);
       setLastUpdated(new Date().toISOString());
+
+      // Load insights in background without blocking the main UI
+      loadInsights(rawCampaigns);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
-  }, []);
+  }, [loadInsights]);
 
   useEffect(() => { loadData(days); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -286,6 +410,7 @@ export default function HeyReachDashboard() {
               <>
                 <div style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Campaigns</div>
                 <CampaignTable campaigns={campaigns} />
+                <InsightsPanel insights={insights} loading={insightsLoading} />
               </>
             )}
 
