@@ -160,29 +160,32 @@ export default function HeyReachDashboard() {
     try {
       const range = getDateRange(daysN);
 
-      // Fetch campaigns and overall stats in parallel
-      const [campaignRes, overallRes] = await Promise.all([
-        hrFetch("/campaign/GetAll", { offset: 0, limit: 50 }),
-        hrFetch("/stats/GetOverallStats", { ...range }),
+      // Step 1: fetch campaigns to get account IDs
+      const campaignRes = await hrFetch("/campaign/GetAll", { offset: 0, limit: 50 });
+      const rawCampaigns = campaignRes.campaigns || campaignRes.items || [];
+
+      // Collect all unique LinkedIn account IDs from campaigns
+      const accountIds = [...new Set(
+        rawCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
+      )];
+
+      // Step 2: fetch overall stats (requires accountIds) + per-campaign stats in parallel
+      const [overallRes, ...campaignStatsResults] = await Promise.all([
+        accountIds.length
+          ? hrFetch("/stats/GetOverallStats", { accountIds, ...range })
+          : Promise.resolve(null),
+        ...rawCampaigns.map(c =>
+          hrFetch("/stats/GetOverallStats", { campaignIds: [c.id], accountIds: c.campaignAccountIds || accountIds, ...range })
+            .catch(() => null)
+        ),
       ]);
 
-      const rawCampaigns = campaignRes.campaigns || campaignRes.items || campaignRes || [];
-      setOverallStats(overallRes.overallStats || overallRes);
+      setOverallStats(overallRes?.overallStats || overallRes);
 
-      // Fetch per-campaign stats in parallel
-      const campaignsWithStats = await Promise.all(
-        rawCampaigns.map(async (c) => {
-          try {
-            const statsRes = await hrFetch("/stats/GetOverallStats", {
-              campaignIds: [c.id],
-              ...range,
-            });
-            return { ...c, stats: statsRes.overallStats || statsRes };
-          } catch {
-            return { ...c, stats: {} };
-          }
-        })
-      );
+      const campaignsWithStats = rawCampaigns.map((c, i) => ({
+        ...c,
+        stats: campaignStatsResults[i]?.overallStats || campaignStatsResults[i] || {},
+      }));
 
       setCampaigns(campaignsWithStats);
       setLastUpdated(new Date().toISOString());
