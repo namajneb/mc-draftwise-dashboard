@@ -243,9 +243,10 @@ export default function HeyReachDashboard() {
       const results = await Promise.all(
         rawCampaigns.map(c =>
           hrFetch("/campaign/GetLeads", { campaignId: c.id, offset: 0, limit: 500 })
-            .catch(() => null)
+            .catch(err => { console.warn("GetLeads failed for", c.id, err); return null; })
         )
       );
+      console.log("[Insights] raw results:", JSON.stringify(results).slice(0, 2000));
 
       const repliedTitles = {}, repliedCompanies = {};
       const allTitles = {}, allCompanies = {};
@@ -410,9 +411,10 @@ export default function HeyReachDashboard() {
               <>
                 <div style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Campaigns</div>
                 <CampaignTable campaigns={campaigns} />
-                <InsightsPanel insights={insights} loading={insightsLoading} />
               </>
             )}
+
+            <InsightsPanel insights={insights} loading={insightsLoading} />
 
             {!overallStats && campaigns.length === 0 && (
               <div style={{ textAlign: "center", padding: "60px 0", color: C.lightGrey, fontSize: 13 }}>
