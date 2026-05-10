@@ -133,7 +133,12 @@ function CampaignTable({ campaigns }) {
             borderBottom: i < campaigns.length - 1 ? `1px solid ${C.border}` : "none",
             background: i % 2 === 0 ? C.charcoal : C.surface,
           }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif", paddingRight: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+            <div style={{ paddingRight: 16, overflow: "hidden" }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+              {(c.status === "FINISHED" || c.status === "COMPLETED") && (
+                <div style={{ fontSize: 9, color: C.grey, fontFamily: "'Inter', sans-serif", letterSpacing: "0.08em", marginTop: 2 }}>LIFETIME</div>
+              )}
+            </div>
             <div><StatusBadge status={c.status} /></div>
             <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.connectionsSent)}</div>
             <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.connectionsAccepted)}</div>
@@ -172,18 +177,21 @@ export default function HeyReachDashboard() {
       )];
 
       const allCampaignIds = rawCampaigns.map(c => c.id).filter(Boolean);
+      const allTimeRange = { startDate: "2024-01-01T00:00:00.000Z", endDate: new Date().toISOString() };
 
       // Step 2: fetch overall stats + per-campaign stats in parallel
-      // API requires both accountIds AND campaignIds on every call
+      // Finished campaigns use all-time range so historical data is always visible
       const [overallRes, ...campaignStatsResults] = await Promise.all([
         hrFetch("/stats/GetOverallStats", { accountIds, campaignIds: allCampaignIds, ...range }),
-        ...rawCampaigns.map(c =>
-          hrFetch("/stats/GetOverallStats", {
+        ...rawCampaigns.map(c => {
+          const isFinished = c.status === "FINISHED" || c.status === "COMPLETED";
+          const statsRange = isFinished ? allTimeRange : range;
+          return hrFetch("/stats/GetOverallStats", {
             campaignIds: [c.id],
             accountIds: c.campaignAccountIds?.length ? c.campaignAccountIds : accountIds,
-            ...range,
-          }).catch(() => null)
-        ),
+            ...statsRange,
+          }).catch(() => null);
+        }),
       ]);
 
       setOverallStats(overallRes?.overallStats || overallRes);
