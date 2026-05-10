@@ -180,20 +180,18 @@ export default function HeyReachDashboard() {
 
       // Fetch overall stats + per-campaign stats in parallel
       const [overallRes, ...campaignStatsResults] = await Promise.all([
-        // Overall: pass known accountIds so we at least get connected campaign totals
         hrFetch("/stats/GetOverallStats", {
-          ...(allKnownAccountIds.length ? { accountIds: allKnownAccountIds } : {}),
+          accountIds: allKnownAccountIds.length ? allKnownAccountIds : null,
           campaignIds: allCampaignIds,
           ...range,
         }),
         ...rawCampaigns.map(c => {
           const isFinished = c.status === "FINISHED" || c.status === "COMPLETED";
           const statsRange = isFinished ? allTimeRange : range;
-          const hasAccountIds = c.campaignAccountIds?.length > 0;
+          const camAccountIds = c.campaignAccountIds?.length ? c.campaignAccountIds : null;
           return hrFetch("/stats/GetOverallStats", {
             campaignIds: [c.id],
-            // For disconnected campaigns, omit accountIds — API returns stats for all accounts
-            ...(hasAccountIds ? { accountIds: c.campaignAccountIds } : {}),
+            accountIds: camAccountIds,
             ...statsRange,
           }).catch(() => null);
         }),
