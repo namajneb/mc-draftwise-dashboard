@@ -167,41 +167,59 @@ export default function HeyReachDashboard() {
     try {
       const range = getDateRange(daysN);
 
-      // Step 1: fetch campaigns to get account IDs
-      const campaignRes = await hrFetch("/campaign/GetAll", { offset: 0, limit: 50 });
+      // Fetch campaigns + all workspace LinkedIn accounts (incl. disconnected) in parallel
+      const [campaignRes, allAccountsRes] = await Promise.all([
+        hrFetch("/campaign/GetAll", { offset: 0, limit: 50 }),
+        hrFetch("/linkedinAccount/GetAll", { offset: 0, limit: 100 }).catch(() => null),
+      ]);
+
       const rawCampaigns = campaignRes.campaigns || campaignRes.items || [];
 
-      // Collect all unique LinkedIn account IDs from campaigns
-      const accountIds = [...new Set(
-        rawCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
-      )];
+      // All account IDs ever added to workspace (includes disconnected senders)
+      const workspaceAccountIds = (
+        allAccountsRes?.items || allAccountsRes?.accounts || allAccountsRes?.linkedInAccounts || []
+      ).map(a => a.id).filter(Boolean);
 
       const allCampaignIds = rawCampaigns.map(c => c.id).filter(Boolean);
       const allTimeRange = { startDate: "2024-01-01T00:00:00.000Z", endDate: new Date().toISOString() };
 
-      // Step 2: fetch overall stats + per-campaign stats in parallel
-      // Finished campaigns use all-time range so historical data is always visible
+      // For campaigns with no campaignAccountIds (disconnected senders), try GetById
+      const enrichedCampaigns = await Promise.all(
+        rawCampaigns.map(async c => {
+          if (c.campaignAccountIds?.length) return c;
+          try {
+            const full = await hrFetch(`/campaign/GetById?campaignId=${c.id}`, undefined);
+            return { ...c, campaignAccountIds: full.campaignAccountIds || [] };
+          } catch { return c; }
+        })
+      );
+
+      // All IDs from campaigns + all workspace accounts as the broadest fallback
+      const campaignAccountIds = [...new Set(
+        enrichedCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
+      )];
+      const allAccountIds = [...new Set([...campaignAccountIds, ...workspaceAccountIds])];
+
+      // Fetch overall stats + per-campaign stats in parallel
       const [overallRes, ...campaignStatsResults] = await Promise.all([
-        hrFetch("/stats/GetOverallStats", { accountIds, campaignIds: allCampaignIds, ...range }),
-        ...rawCampaigns.map(c => {
+        hrFetch("/stats/GetOverallStats", { accountIds: allAccountIds, campaignIds: allCampaignIds, ...range }),
+        ...enrichedCampaigns.map(c => {
           const isFinished = c.status === "FINISHED" || c.status === "COMPLETED";
           const statsRange = isFinished ? allTimeRange : range;
+          const camAccountIds = c.campaignAccountIds?.length ? c.campaignAccountIds : allAccountIds;
           return hrFetch("/stats/GetOverallStats", {
             campaignIds: [c.id],
-            accountIds: c.campaignAccountIds?.length ? c.campaignAccountIds : accountIds,
+            accountIds: camAccountIds,
             ...statsRange,
           }).catch(() => null);
         }),
       ]);
 
       setOverallStats(overallRes?.overallStats || overallRes);
-
-      const campaignsWithStats = rawCampaigns.map((c, i) => ({
+      setCampaigns(enrichedCampaigns.map((c, i) => ({
         ...c,
         stats: campaignStatsResults[i]?.overallStats || campaignStatsResults[i] || {},
-      }));
-
-      setCampaigns(campaignsWithStats);
+      })));
       setLastUpdated(new Date().toISOString());
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
