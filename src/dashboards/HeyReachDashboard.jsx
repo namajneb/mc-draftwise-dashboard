@@ -161,6 +161,7 @@ export default function HeyReachDashboard() {
   const [error, setError]                 = useState(null);
   const [lastUpdated, setLastUpdated]     = useState(null);
   const [syncing, setSyncing]             = useState(false);
+  const [debugInfo, setDebugInfo]         = useState(null);
 
   const loadData = useCallback(async (daysN) => {
     setLoading(true); setError(null);
@@ -216,11 +217,22 @@ export default function HeyReachDashboard() {
       ]);
 
       setOverallStats(overallRes?.overallStats || overallRes);
-      setCampaigns(enrichedCampaigns.map((c, i) => ({
+      setCampaigns(rawCampaigns.map((c, i) => ({
         ...c,
         stats: campaignStatsResults[i]?.overallStats || campaignStatsResults[i] || {},
       })));
       setLastUpdated(new Date().toISOString());
+
+      // Debug: capture raw API responses to diagnose 0-data campaigns
+      setDebugInfo({
+        workspaceAccountsRaw: allAccountsRes,
+        workspaceAccountIds,
+        perCampaign: rawCampaigns.map((c, i) => ({
+          name: c.name, id: c.id,
+          campaignAccountIds: enrichedCampaigns[i]?.campaignAccountIds,
+          statsResult: campaignStatsResults[i],
+        })),
+      });
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }, []);
@@ -307,6 +319,15 @@ export default function HeyReachDashboard() {
               <div style={{ textAlign: "center", padding: "60px 0", color: C.lightGrey, fontSize: 13 }}>
                 No data found for the selected date range.
               </div>
+            )}
+
+            {debugInfo && (
+              <details style={{ marginTop: 32 }}>
+                <summary style={{ fontSize: 10, color: C.grey, cursor: "pointer", userSelect: "none" }}>Debug info</summary>
+                <pre style={{ marginTop: 8, fontSize: 10, color: C.grey, background: C.charcoal, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, overflow: "auto", maxHeight: 400, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
+                  {JSON.stringify(debugInfo, null, 2)}
+                </pre>
+              </details>
             )}
           </>
         )}
