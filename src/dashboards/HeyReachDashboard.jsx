@@ -174,22 +174,8 @@ export default function HeyReachDashboard() {
       const allCampaignIds = rawCampaigns.map(c => c.id).filter(Boolean);
       const allTimeRange = { startDate: "2024-01-01T00:00:00.000Z", endDate: new Date().toISOString() };
 
-      // For campaigns missing account IDs, fetch them via the campaign-specific accounts endpoint
-      // (HeyReach retains these even after the sender account is disconnected)
-      const enrichedCampaigns = await Promise.all(
-        rawCampaigns.map(async c => {
-          if (c.campaignAccountIds?.length) return c;
-          try {
-            const res = await hrFetch(`/LinkedInAccount/GetLinkedInAccountsForCampaign?campaignId=${c.id}`, undefined, true);
-            const accounts = res?.items || res?.accounts || res?.linkedInAccounts || (Array.isArray(res) ? res : []);
-            const ids = accounts.map(a => a.id || a.accountId).filter(Boolean);
-            return { ...c, campaignAccountIds: ids };
-          } catch { return c; }
-        })
-      );
-
       const allAccountIds = [...new Set(
-        enrichedCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
+        rawCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
       )];
 
       // Fetch overall stats + per-campaign stats in parallel
@@ -199,15 +185,26 @@ export default function HeyReachDashboard() {
           campaignIds: allCampaignIds,
           ...range,
         }),
-        ...enrichedCampaigns.map(c => {
+        ...rawCampaigns.map(c => {
           const isFinished = c.status === "FINISHED" || c.status === "COMPLETED";
           const statsRange = isFinished ? allTimeRange : range;
-          const camAccountIds = c.campaignAccountIds?.length ? c.campaignAccountIds : null;
-          return hrFetch("/stats/GetOverallStats", {
-            campaignIds: [c.id],
-            accountIds: camAccountIds,
-            ...statsRange,
-          }).catch(() => null);
+
+          if (c.campaignAccountIds?.length) {
+            return hrFetch("/stats/GetOverallStats", {
+              campaignIds: [c.id],
+              accountIds: c.campaignAccountIds,
+              ...statsRange,
+            }).catch(() => null);
+          }
+
+          // Disconnected/finished campaign — try GetOverallStatsByCampaign (no accountIds needed)
+          return hrFetch("/stats/GetOverallStatsByCampaign", {
+            campaignId: c.id, ...statsRange,
+          }).catch(() =>
+            hrFetch("/stats/GetOverallStatsByCampaign", {
+              campaignIds: [c.id], ...statsRange,
+            }).catch(() => null)
+          );
         }),
       ]);
 
