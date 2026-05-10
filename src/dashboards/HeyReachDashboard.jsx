@@ -173,19 +173,32 @@ export default function HeyReachDashboard() {
       const allCampaignIds = rawCampaigns.map(c => c.id).filter(Boolean);
       const allTimeRange = { startDate: "2024-01-01T00:00:00.000Z", endDate: new Date().toISOString() };
 
-      // Collect account IDs from campaigns that still have them
-      const allKnownAccountIds = [...new Set(
-        rawCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
+      // For campaigns missing account IDs, fetch them via the campaign-specific accounts endpoint
+      // (HeyReach retains these even after the sender account is disconnected)
+      const enrichedCampaigns = await Promise.all(
+        rawCampaigns.map(async c => {
+          if (c.campaignAccountIds?.length) return c;
+          try {
+            const res = await hrFetch(`/linkedInAccount/GetLinkedInAccountsForCampaign?campaignId=${c.id}`, undefined);
+            const accounts = res?.items || res?.accounts || res?.linkedInAccounts || (Array.isArray(res) ? res : []);
+            const ids = accounts.map(a => a.id || a.accountId).filter(Boolean);
+            return { ...c, campaignAccountIds: ids };
+          } catch { return c; }
+        })
+      );
+
+      const allAccountIds = [...new Set(
+        enrichedCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
       )];
 
       // Fetch overall stats + per-campaign stats in parallel
       const [overallRes, ...campaignStatsResults] = await Promise.all([
         hrFetch("/stats/GetOverallStats", {
-          accountIds: allKnownAccountIds.length ? allKnownAccountIds : null,
+          accountIds: allAccountIds.length ? allAccountIds : null,
           campaignIds: allCampaignIds,
           ...range,
         }),
-        ...rawCampaigns.map(c => {
+        ...enrichedCampaigns.map(c => {
           const isFinished = c.status === "FINISHED" || c.status === "COMPLETED";
           const statsRange = isFinished ? allTimeRange : range;
           const camAccountIds = c.campaignAccountIds?.length ? c.campaignAccountIds : null;
