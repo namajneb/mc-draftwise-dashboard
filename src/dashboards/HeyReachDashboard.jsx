@@ -169,14 +169,18 @@ export default function HeyReachDashboard() {
         rawCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
       )];
 
-      // Step 2: fetch overall stats (requires accountIds) + per-campaign stats in parallel
+      const allCampaignIds = rawCampaigns.map(c => c.id).filter(Boolean);
+
+      // Step 2: fetch overall stats + per-campaign stats in parallel
+      // API requires both accountIds AND campaignIds on every call
       const [overallRes, ...campaignStatsResults] = await Promise.all([
-        accountIds.length
-          ? hrFetch("/stats/GetOverallStats", { accountIds, ...range })
-          : Promise.resolve(null),
+        hrFetch("/stats/GetOverallStats", { accountIds, campaignIds: allCampaignIds, ...range }),
         ...rawCampaigns.map(c =>
-          hrFetch("/stats/GetOverallStats", { campaignIds: [c.id], accountIds: c.campaignAccountIds || accountIds, ...range })
-            .catch(() => null)
+          hrFetch("/stats/GetOverallStats", {
+            campaignIds: [c.id],
+            accountIds: c.campaignAccountIds?.length ? c.campaignAccountIds : accountIds,
+            ...range,
+          }).catch(() => null)
         ),
       ]);
 
