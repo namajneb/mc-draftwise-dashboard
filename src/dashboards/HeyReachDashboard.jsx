@@ -126,6 +126,8 @@ function CampaignTable({ campaigns }) {
 
       {campaigns.map((c, i) => {
         const s = c.stats || {};
+        const isFinished = c.status === "FINISHED" || c.status === "COMPLETED";
+        const senderDisconnected = isFinished && !c.campaignAccountIds?.length && !s.connectionsSent && !s.messagesSent;
         return (
           <div key={c.id} style={{
             display: "grid",
@@ -136,8 +138,8 @@ function CampaignTable({ campaigns }) {
           }}>
             <div style={{ paddingRight: 16, overflow: "hidden" }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-              {(c.status === "FINISHED" || c.status === "COMPLETED") && (
-                <div style={{ fontSize: 9, color: C.grey, fontFamily: "'Inter', sans-serif", letterSpacing: "0.08em", marginTop: 2 }}>LIFETIME</div>
+              {senderDisconnected && (
+                <div style={{ fontSize: 9, color: C.red, fontFamily: "'Inter', sans-serif", letterSpacing: "0.08em", marginTop: 2 }}>SENDER DISCONNECTED</div>
               )}
             </div>
             <div><StatusBadge status={c.status} /></div>
