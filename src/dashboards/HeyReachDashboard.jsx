@@ -240,13 +240,14 @@ export default function HeyReachDashboard() {
   const loadInsights = useCallback(async (rawCampaigns) => {
     setInsightsLoading(true);
     try {
-      const results = await Promise.all(
-        rawCampaigns.map(c =>
-          hrFetch("/campaign/GetLeads", { campaignId: c.id, offset: 0, limit: 500 })
-            .catch(err => { console.warn("GetLeads failed for", c.id, err); return null; })
-        )
-      );
-      console.log("[Insights] raw results:", JSON.stringify(results).slice(0, 2000));
+      const results = [];
+      for (const c of rawCampaigns) {
+        const r = await hrFetch("/campaign/GetLeads", { campaignId: c.id, offset: 0, limit: 500 })
+          .catch(err => { console.warn("GetLeads failed for", c.id, err?.message); return null; });
+        results.push(r);
+        await new Promise(ok => setTimeout(ok, 300));
+      }
+      console.log("[Insights] raw results:", JSON.stringify(results).slice(0, 3000));
 
       const repliedTitles = {}, repliedCompanies = {};
       const allTitles = {}, allCompanies = {};

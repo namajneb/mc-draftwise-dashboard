@@ -21,7 +21,10 @@ module.exports = async function handler(req, res) {
       body: req.method !== "GET" ? JSON.stringify(req.body || {}) : undefined,
     });
 
-    const data = await upstream.json();
+    const text = await upstream.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch { data = { error: text || `HTTP ${upstream.status}` }; }
     res.status(upstream.status).json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
