@@ -161,56 +161,39 @@ export default function HeyReachDashboard() {
   const [error, setError]                 = useState(null);
   const [lastUpdated, setLastUpdated]     = useState(null);
   const [syncing, setSyncing]             = useState(false);
-  const [debugInfo, setDebugInfo]         = useState(null);
 
   const loadData = useCallback(async (daysN) => {
     setLoading(true); setError(null);
     try {
       const range = getDateRange(daysN);
 
-      // Fetch campaigns + all workspace LinkedIn accounts (incl. disconnected) in parallel
-      const [campaignRes, allAccountsRes] = await Promise.all([
-        hrFetch("/campaign/GetAll", { offset: 0, limit: 50 }),
-        hrFetch("/linkedinAccount/GetAll", { offset: 0, limit: 100 }).catch(() => null),
-      ]);
-
+      const campaignRes = await hrFetch("/campaign/GetAll", { offset: 0, limit: 50 });
       const rawCampaigns = campaignRes.campaigns || campaignRes.items || [];
-
-      // All account IDs ever added to workspace (includes disconnected senders)
-      const workspaceAccountIds = (
-        allAccountsRes?.items || allAccountsRes?.accounts || allAccountsRes?.linkedInAccounts || []
-      ).map(a => a.id).filter(Boolean);
 
       const allCampaignIds = rawCampaigns.map(c => c.id).filter(Boolean);
       const allTimeRange = { startDate: "2024-01-01T00:00:00.000Z", endDate: new Date().toISOString() };
 
-      // For campaigns with no campaignAccountIds (disconnected senders), try GetById
-      const enrichedCampaigns = await Promise.all(
-        rawCampaigns.map(async c => {
-          if (c.campaignAccountIds?.length) return c;
-          try {
-            const full = await hrFetch(`/campaign/GetById?campaignId=${c.id}`, undefined);
-            return { ...c, campaignAccountIds: full.campaignAccountIds || [] };
-          } catch { return c; }
-        })
-      );
-
-      // All IDs from campaigns + all workspace accounts as the broadest fallback
-      const campaignAccountIds = [...new Set(
-        enrichedCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
+      // Collect account IDs from campaigns that still have them
+      const allKnownAccountIds = [...new Set(
+        rawCampaigns.flatMap(c => c.campaignAccountIds || []).filter(Boolean)
       )];
-      const allAccountIds = [...new Set([...campaignAccountIds, ...workspaceAccountIds])];
 
       // Fetch overall stats + per-campaign stats in parallel
       const [overallRes, ...campaignStatsResults] = await Promise.all([
-        hrFetch("/stats/GetOverallStats", { accountIds: allAccountIds, campaignIds: allCampaignIds, ...range }),
-        ...enrichedCampaigns.map(c => {
+        // Overall: pass known accountIds so we at least get connected campaign totals
+        hrFetch("/stats/GetOverallStats", {
+          ...(allKnownAccountIds.length ? { accountIds: allKnownAccountIds } : {}),
+          campaignIds: allCampaignIds,
+          ...range,
+        }),
+        ...rawCampaigns.map(c => {
           const isFinished = c.status === "FINISHED" || c.status === "COMPLETED";
           const statsRange = isFinished ? allTimeRange : range;
-          const camAccountIds = c.campaignAccountIds?.length ? c.campaignAccountIds : allAccountIds;
+          const hasAccountIds = c.campaignAccountIds?.length > 0;
           return hrFetch("/stats/GetOverallStats", {
             campaignIds: [c.id],
-            accountIds: camAccountIds,
+            // For disconnected campaigns, omit accountIds — API returns stats for all accounts
+            ...(hasAccountIds ? { accountIds: c.campaignAccountIds } : {}),
             ...statsRange,
           }).catch(() => null);
         }),
@@ -222,17 +205,6 @@ export default function HeyReachDashboard() {
         stats: campaignStatsResults[i]?.overallStats || campaignStatsResults[i] || {},
       })));
       setLastUpdated(new Date().toISOString());
-
-      // Debug: capture raw API responses to diagnose 0-data campaigns
-      setDebugInfo({
-        workspaceAccountsRaw: allAccountsRes,
-        workspaceAccountIds,
-        perCampaign: rawCampaigns.map((c, i) => ({
-          name: c.name, id: c.id,
-          campaignAccountIds: enrichedCampaigns[i]?.campaignAccountIds,
-          statsResult: campaignStatsResults[i],
-        })),
-      });
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }, []);
@@ -321,14 +293,7 @@ export default function HeyReachDashboard() {
               </div>
             )}
 
-            {debugInfo && (
-              <details style={{ marginTop: 32 }}>
-                <summary style={{ fontSize: 10, color: C.grey, cursor: "pointer", userSelect: "none" }}>Debug info</summary>
-                <pre style={{ marginTop: 8, fontSize: 10, color: C.grey, background: C.charcoal, border: `1px solid ${C.border}`, borderRadius: 8, padding: 12, overflow: "auto", maxHeight: 400, whiteSpace: "pre-wrap", wordBreak: "break-all" }}>
-                  {JSON.stringify(debugInfo, null, 2)}
-                </pre>
-              </details>
-            )}
+
           </>
         )}
       </div>
