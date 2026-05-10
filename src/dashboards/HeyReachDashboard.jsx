@@ -76,20 +76,17 @@ function StatusBadge({ status }) {
   );
 }
 
-function pick(s, ...keys) {
-  for (const k of keys) if (s[k] != null && s[k] !== 0 || s[k] === 0) return s[k];
-  return null;
-}
-
 function SummaryBar({ stats }) {
   const s = stats || {};
+  const acceptRate = s.connectionAcceptanceRate != null ? s.connectionAcceptanceRate * 100 : null;
+  const replyRate  = s.messageReplyRate != null ? s.messageReplyRate * 100 : null;
   const cards = [
-    { label: "Conn. Requests",  value: fmt(pick(s, 'connectionRequestsSent', 'connection_requests_sent')), accent: C.green },
-    { label: "Accepted",        value: fmt(pick(s, 'connectionsAccepted', 'connections')),                 accent: C.green },
-    { label: "Acceptance Rate", value: fmtPct(pick(s, 'acceptanceRate', 'acceptance_rate')),               accent: C.green },
-    { label: "Messages Sent",   value: fmt(pick(s, 'messagesSent', 'messages_sent')),                      accent: C.blue },
-    { label: "Replies",         value: fmt(pick(s, 'replies', 'repliesCount')),                            accent: C.blue },
-    { label: "Reply Rate",      value: fmtPct(pick(s, 'replyRate', 'reply_rate')),                         accent: C.blue },
+    { label: "Conn. Requests",  value: fmt(s.connectionsSent),    accent: C.green },
+    { label: "Accepted",        value: fmt(s.connectionsAccepted), accent: C.green },
+    { label: "Acceptance Rate", value: fmtPct(acceptRate),         accent: C.green },
+    { label: "Messages Sent",   value: fmt(s.messagesSent),        accent: C.blue },
+    { label: "Replies",         value: fmt(s.totalMessageReplies), accent: C.blue },
+    { label: "Reply Rate",      value: fmtPct(replyRate),          accent: C.blue },
   ];
 
   return (
@@ -138,12 +135,12 @@ function CampaignTable({ campaigns }) {
           }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif", paddingRight: 16, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
             <div><StatusBadge status={c.status} /></div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(pick(s, 'connectionRequestsSent', 'connection_requests_sent'))}</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(pick(s, 'connectionsAccepted', 'connections'))}</div>
-            {(() => { const v = pick(s, 'acceptanceRate', 'acceptance_rate'); return <div style={{ fontSize: 13, fontWeight: 600, color: v > 30 ? C.green : v > 15 ? C.gold : C.lightGrey, fontFamily: "'Inter', sans-serif" }}>{fmtPct(v)}</div>; })()}
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(pick(s, 'messagesSent', 'messages_sent'))}</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(pick(s, 'replies', 'repliesCount'))}</div>
-            {(() => { const v = pick(s, 'replyRate', 'reply_rate'); return <div style={{ fontSize: 13, fontWeight: 600, color: v > 20 ? C.green : v > 10 ? C.gold : C.lightGrey, fontFamily: "'Inter', sans-serif" }}>{fmtPct(v)}</div>; })()}
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.connectionsSent)}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.connectionsAccepted)}</div>
+            {(() => { const v = s.connectionAcceptanceRate != null ? s.connectionAcceptanceRate * 100 : null; return <div style={{ fontSize: 13, fontWeight: 600, color: v > 30 ? C.green : v > 15 ? C.gold : C.lightGrey, fontFamily: "'Inter', sans-serif" }}>{fmtPct(v)}</div>; })()}
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.messagesSent)}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.totalMessageReplies)}</div>
+            {(() => { const v = s.messageReplyRate != null ? s.messageReplyRate * 100 : null; return <div style={{ fontSize: 13, fontWeight: 600, color: v > 20 ? C.green : v > 10 ? C.gold : C.lightGrey, fontFamily: "'Inter', sans-serif" }}>{fmtPct(v)}</div>; })()}
           </div>
         );
       })}
@@ -269,9 +266,7 @@ export default function HeyReachDashboard() {
             {overallStats && (
               <>
                 <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>Last {days} days · {campaigns.length} campaigns</div>
-                {/* DEBUG — remove once field names confirmed */}
-                <pre style={{ fontSize: 10, color: C.grey, background: C.charcoal, padding: 12, borderRadius: 8, marginBottom: 16, overflow: "auto" }}>{JSON.stringify(overallStats, null, 2)}</pre>
-                <SummaryBar stats={overallStats} />
+<SummaryBar stats={overallStats} />
               </>
             )}
 
