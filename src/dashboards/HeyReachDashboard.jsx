@@ -189,22 +189,13 @@ export default function HeyReachDashboard() {
           const isFinished = c.status === "FINISHED" || c.status === "COMPLETED";
           const statsRange = isFinished ? allTimeRange : range;
 
-          if (c.campaignAccountIds?.length) {
-            return hrFetch("/stats/GetOverallStats", {
-              campaignIds: [c.id],
-              accountIds: c.campaignAccountIds,
-              ...statsRange,
-            }).catch(() => null);
-          }
-
-          // Disconnected/finished campaign — try GetOverallStatsByCampaign (no accountIds needed)
-          return hrFetch("/stats/GetOverallStatsByCampaign", {
-            campaignId: c.id, ...statsRange,
-          }).catch(() =>
-            hrFetch("/stats/GetOverallStatsByCampaign", {
-              campaignIds: [c.id], ...statsRange,
-            }).catch(() => null)
-          );
+          // Use campaign-specific IDs if available, otherwise fall back to all known workspace IDs
+          const accountIds = c.campaignAccountIds?.length ? c.campaignAccountIds : allAccountIds;
+          return hrFetch("/stats/GetOverallStats", {
+            campaignIds: [c.id],
+            accountIds: accountIds.length ? accountIds : null,
+            ...statsRange,
+          }).catch(() => null);
         }),
       ]);
 
