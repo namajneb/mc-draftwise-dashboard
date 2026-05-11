@@ -736,7 +736,7 @@ export default function LinkedInAdsDashboard() {
       </div>
 
       {/* Campaign Tabs */}
-      <div style={{ background: C.black, borderBottom: `1px solid ${C.border}`, padding: "0 32px", display: "flex", gap: 2, alignItems: "stretch" }}>
+      <div style={{ background: C.black, borderBottom: `1px solid ${C.border}`, padding: "0 32px", display: "flex", gap: 2, alignItems: "stretch", overflowX: "auto" }}>
         {(() => {
           const allActive  = activeCamId === "__all__";
           const allImpr    = campaigns.reduce((s, c) => s + (c.metrics?.impressions || 0), 0);
