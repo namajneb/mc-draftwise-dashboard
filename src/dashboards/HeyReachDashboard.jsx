@@ -156,71 +156,56 @@ function CampaignTable({ campaigns }) {
   );
 }
 
-function InsightsPanel({ insights, loading }) {
-  if (loading || !insights) {
-    return (
-      <div style={{ marginTop: 32 }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Response Insights</div>
-        <div style={{ fontSize: 12, color: C.grey }}>Loading insights…</div>
-      </div>
-    );
-  }
+function FunnelView({ stats }) {
+  const s = stats || {};
+  const requests  = s.connectionsSent      || 0;
+  const accepted  = s.connectionsAccepted  || 0;
+  const messages  = s.messagesSent         || 0;
+  const replies   = s.totalMessageReplies  || 0;
+  const base      = requests || 1;
 
-  const { titles, companies, allLeads } = insights;
-  const titleHeader = allLeads ? "Top Lead Job Titles" : "Top Responding Job Titles";
-  const companyHeader = allLeads ? "Top Lead Companies" : "Top Responding Companies";
+  const steps = [
+    { label: "Conn. Requests", value: requests, pct: 100,                                    color: C.green },
+    { label: "Accepted",       value: accepted, pct: (accepted / base) * 100,                color: C.green },
+    { label: "Messages Sent",  value: messages, pct: (messages / base) * 100,                color: C.blue  },
+    { label: "Replies",        value: replies,  pct: messages ? (replies / messages) * 100 : 0, color: C.blue, replyRate: true },
+  ];
 
-  if (!titles.length && !companies.length) {
-    return (
-      <div style={{ marginTop: 32 }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Response Insights</div>
-        <div style={{ fontSize: 12, color: C.grey }}>No lead data available.</div>
-      </div>
-    );
-  }
-
-  const barMax = titles[0]?.count || 1;
+  const drops = [
+    accepted && requests  ? `${((accepted / requests)  * 100).toFixed(1)}% accepted`    : null,
+    accepted              ? `sent to ${((messages / (accepted || 1)) * 100).toFixed(0)}% of connections` : null,
+    messages              ? `${((replies  / messages)  * 100).toFixed(1)}% reply rate`  : null,
+  ];
 
   return (
     <div style={{ marginTop: 32 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>Response Insights</div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-
-        {/* Job Titles */}
-        <div style={{ background: C.charcoal, borderRadius: 10, border: `1px solid ${C.border}`, padding: "18px 20px" }}>
-          <div style={{ fontSize: 10, color: C.grey, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>{titleHeader}</div>
-          {titles.slice(0, 10).map((t, i) => (
-            <div key={t.label} style={{ marginBottom: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                <span style={{ fontSize: 11, color: C.offWhite, fontFamily: "'Inter', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "75%" }}>{t.label}</span>
-                <span style={{ fontSize: 11, color: C.grey, fontFamily: "'Inter', sans-serif", flexShrink: 0 }}>{t.count}</span>
+      <div style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 16 }}>Outreach Funnel</div>
+      <div style={{ background: C.charcoal, borderRadius: 10, border: `1px solid ${C.border}`, padding: "24px 28px" }}>
+        {steps.map((step, i) => (
+          <div key={step.label}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div style={{ width: 120, flexShrink: 0, fontSize: 11, color: C.lightGrey, fontFamily: "'Inter', sans-serif" }}>{step.label}</div>
+              <div style={{ flex: 1, height: 28, background: C.border, borderRadius: 4, overflow: "hidden" }}>
+                <div style={{
+                  height: "100%", borderRadius: 4,
+                  width: `${Math.max(step.pct, 0.5)}%`,
+                  background: step.color + "88",
+                  borderRight: `2px solid ${step.color}`,
+                  transition: "width 0.5s ease",
+                }} />
               </div>
-              <div style={{ height: 3, borderRadius: 2, background: C.border }}>
-                <div style={{ height: 3, borderRadius: 2, background: C.blue, width: `${(t.count / barMax) * 100}%`, transition: "width 0.4s" }} />
+              <div style={{ width: 48, flexShrink: 0, textAlign: "right", fontSize: 15, fontWeight: 700, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(step.value)}</div>
+              <div style={{ width: 52, flexShrink: 0, textAlign: "right", fontSize: 11, color: step.color, fontFamily: "'Inter', sans-serif" }}>
+                {i === 0 ? "100%" : `${step.pct.toFixed(1)}%`}
               </div>
             </div>
-          ))}
-        </div>
-
-        {/* Companies */}
-        <div style={{ background: C.charcoal, borderRadius: 10, border: `1px solid ${C.border}`, padding: "18px 20px" }}>
-          <div style={{ fontSize: 10, color: C.grey, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 14 }}>{companyHeader}</div>
-          {companies.slice(0, 10).map((c, i) => {
-            const cMax = companies[0]?.count || 1;
-            return (
-              <div key={c.label} style={{ marginBottom: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 11, color: C.offWhite, fontFamily: "'Inter', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "75%" }}>{c.label}</span>
-                  <span style={{ fontSize: 11, color: C.grey, fontFamily: "'Inter', sans-serif", flexShrink: 0 }}>{c.count}</span>
-                </div>
-                <div style={{ height: 3, borderRadius: 2, background: C.border }}>
-                  <div style={{ height: 3, borderRadius: 2, background: C.green, width: `${(c.count / cMax) * 100}%`, transition: "width 0.4s" }} />
-                </div>
+            {i < steps.length - 1 && drops[i] && (
+              <div style={{ paddingLeft: 136, paddingTop: 6, paddingBottom: 6, fontSize: 10, color: C.grey, fontFamily: "'Inter', sans-serif" }}>
+                ↓ {drops[i]}
               </div>
-            );
-          })}
-        </div>
-
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -234,58 +219,6 @@ export default function HeyReachDashboard() {
   const [error, setError]                 = useState(null);
   const [lastUpdated, setLastUpdated]     = useState(null);
   const [syncing, setSyncing]             = useState(false);
-  const [insights, setInsights]           = useState(null);
-  const [insightsLoading, setInsightsLoading] = useState(true);
-
-  const loadInsights = useCallback(async (rawCampaigns) => {
-    setInsightsLoading(true);
-    try {
-      const results = [];
-      for (const c of rawCampaigns) {
-        const r = await hrFetch("/lead/GetAll", { campaignId: c.id, offset: 0, limit: 500 })
-          .catch(err => { console.warn("GetLeads failed for", c.id, err?.message); return null; });
-        results.push(r);
-        await new Promise(ok => setTimeout(ok, 300));
-      }
-      console.log("[Insights] raw results:", JSON.stringify(results).slice(0, 3000));
-
-      const repliedTitles = {}, repliedCompanies = {};
-      const allTitles = {}, allCompanies = {};
-
-      for (const res of results) {
-        // Handle multiple possible response shapes
-        const items = Array.isArray(res) ? res
-          : res?.items ?? res?.leads ?? res?.result?.items ?? res?.data ?? [];
-        for (const lead of items) {
-          const title   = (lead.position || lead.jobTitle || lead.headline || lead.title || "").trim();
-          const company = (lead.companyName || lead.company || lead.organizationName || "").trim();
-          if (title)   allTitles[title]     = (allTitles[title] || 0) + 1;
-          if (company) allCompanies[company] = (allCompanies[company] || 0) + 1;
-
-          const st = (lead.messageStatus || lead.status || "").toLowerCase();
-          if (st.includes("reply") || st.includes("replied")) {
-            if (title)   repliedTitles[title]     = (repliedTitles[title] || 0) + 1;
-            if (company) repliedCompanies[company] = (repliedCompanies[company] || 0) + 1;
-          }
-        }
-      }
-
-      const toSorted = obj => Object.entries(obj)
-        .map(([label, count]) => ({ label, count }))
-        .sort((a, b) => b.count - a.count);
-
-      const hasReplied = Object.keys(repliedTitles).length > 0 || Object.keys(repliedCompanies).length > 0;
-      setInsights({
-        titles:    toSorted(hasReplied ? repliedTitles : allTitles),
-        companies: toSorted(hasReplied ? repliedCompanies : allCompanies),
-        allLeads:  !hasReplied,
-      });
-    } catch (e) {
-      setInsights({ titles: [], companies: [], allLeads: true });
-    } finally {
-      setInsightsLoading(false);
-    }
-  }, []);
 
   const loadData = useCallback(async (daysN) => {
     setLoading(true); setError(null);
@@ -330,12 +263,9 @@ export default function HeyReachDashboard() {
       }));
       setCampaigns(finalCampaigns);
       setLastUpdated(new Date().toISOString());
-
-      // Load insights in background without blocking the main UI
-      loadInsights(rawCampaigns);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
-  }, [loadInsights]);
+  }, []);
 
   useEffect(() => { loadData(days); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -415,7 +345,7 @@ export default function HeyReachDashboard() {
               </>
             )}
 
-            <InsightsPanel insights={insights} loading={insightsLoading} />
+            {overallStats && <FunnelView stats={overallStats} />}
 
             {!overallStats && campaigns.length === 0 && (
               <div style={{ textAlign: "center", padding: "60px 0", color: C.lightGrey, fontSize: 13 }}>
