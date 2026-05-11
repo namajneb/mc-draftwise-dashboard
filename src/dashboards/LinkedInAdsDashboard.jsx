@@ -747,8 +747,8 @@ export default function LinkedInAdsDashboard() {
           const allPCtr    = allPImpr > 0 ? allPClicks / allPImpr : 0;
           return (
             <button onClick={() => setActiveCamId("__all__")} style={{
-              display: "flex", flexDirection: "column", justifyContent: "center", gap: 3,
-              padding: "10px 18px", border: "none", background: "none", cursor: "pointer",
+              display: "flex", flexDirection: "column", justifyContent: "center", gap: 4,
+              padding: "14px 24px", border: "none", background: "none", cursor: "pointer",
               whiteSpace: "nowrap", textAlign: "left",
               borderBottom: allActive ? `2px solid ${C.blue}` : "2px solid transparent",
               marginBottom: -1, transition: "all 0.15s",
@@ -774,8 +774,8 @@ export default function LinkedInAdsDashboard() {
           const pCtr    = pImpr > 0 ? pClicks / pImpr : 0;
           return (
             <button key={c.id} onClick={() => setActiveCamId(c.id)} style={{
-              display: "flex", flexDirection: "column", justifyContent: "center", gap: 3,
-              padding: "10px 18px", border: "none", background: "none", cursor: "pointer",
+              display: "flex", flexDirection: "column", justifyContent: "center", gap: 4,
+              padding: "14px 24px", border: "none", background: "none", cursor: "pointer",
               whiteSpace: "nowrap", textAlign: "left",
               borderBottom: active ? `2px solid ${C.blue}` : "2px solid transparent",
               marginBottom: -1, transition: "all 0.15s",
