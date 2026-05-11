@@ -242,7 +242,7 @@ export default function HeyReachDashboard() {
     try {
       const results = [];
       for (const c of rawCampaigns) {
-        const r = await hrFetch("/campaign/GetLeads", { campaignId: c.id, offset: 0, limit: 500 })
+        const r = await hrFetch("/lead/GetAll", { campaignId: c.id, offset: 0, limit: 500 })
           .catch(err => { console.warn("GetLeads failed for", c.id, err?.message); return null; });
         results.push(r);
         await new Promise(ok => setTimeout(ok, 300));
