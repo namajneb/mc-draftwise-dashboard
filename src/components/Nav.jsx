@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext'
 
 const TABS = [
   { path: '/linkedin-ads', label: 'LinkedIn Ads' },
+  { path: '/google-ads',   label: 'Google Ads' },
   { path: '/heyreach',     label: 'HeyReach' },
 ]
 
