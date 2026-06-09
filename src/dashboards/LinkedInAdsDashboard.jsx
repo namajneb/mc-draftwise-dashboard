@@ -161,7 +161,7 @@ function buildAnalyticsPath(accountId, range, pivot = "CAMPAIGN") {
   const { start: s, end: e } = range;
   const dateRange = `(start:(day:${s.day},month:${s.month},year:${s.year}),end:(day:${e.day},month:${e.month},year:${e.year}))`;
   return `/v2/adAnalyticsV2?q=analytics&pivot=${pivot}&timeGranularity=ALL&dateRange=${dateRange}` +
-    `&accounts=List(${encodeURIComponent(urn)})&fields=impressions,clicks,costInLocalCurrency,pivotValues`;
+    `&accounts=List(${encodeURIComponent(urn)})&fields=impressions,clicks,costInLocalCurrency,externalWebsiteConversions,pivotValues`;
 }
 
 async function fetchAnalytics(accountId, range, pivot = "CAMPAIGN") {
