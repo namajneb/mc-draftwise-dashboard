@@ -219,7 +219,10 @@ function fmt(n) {
 }
 function fmtUSD(n)  { return "$" + Number(n).toLocaleString("en-US", { maximumFractionDigits: 0 }); }
 function fmtCTR(n)  { return n ? (n * 100).toFixed(2) + "%" : "—"; }
-function fmtCPC(spend, clicks) { return clicks > 0 ? fmtUSD(spend / clicks) : "—"; }
+function fmtCPC(spendOrVal, clicks) {
+  const val = clicks !== undefined ? (clicks > 0 ? spendOrVal / clicks : 0) : spendOrVal;
+  return val > 0 ? "$" + Number(val).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—";
+}
 function fmtCPConv(spend, conv) { return conv > 0 ? fmtUSD(spend / conv) : "—"; }
 
 const THUMB_COLORS = ["#dde3ea","#d6dde6","#e2ddd8","#d8e2dd","#e0dae2","#dde0e2","#e2e0d8","#d8dce2","#e2d8dd","#dadada"];
@@ -354,7 +357,7 @@ function SummaryBar({ ads, prevMap, prevCampaignMetrics }) {
     { label: "Impressions",  value: fmt(t.impressions),             ticker: <Ticker curr={t.impressions} prev={p.impressions} />, accent: tickerColor(t.impressions, p.impressions) },
     { label: "Clicks",       value: fmt(t.clicks),                  ticker: <Ticker curr={t.clicks}      prev={p.clicks} />,       accent: tickerColor(t.clicks, p.clicks) },
     { label: "CTR",          value: fmtCTR(ctr),                    ticker: <Ticker curr={ctr}           prev={prevCtr} />,         accent: tickerColor(ctr, prevCtr) },
-    { label: "CPC",          value: cpc > 0 ? fmtUSD(cpc) : "—",   ticker: <Ticker curr={cpc}           prev={prevCpc} invert />,  accent: tickerColor(cpc, prevCpc, true) },
+    { label: "CPC",          value: fmtCPC(cpc),                    ticker: <Ticker curr={cpc}           prev={prevCpc} invert />,  accent: tickerColor(cpc, prevCpc, true) },
     { label: "Conversions",  value: fmt(t.conversions),             ticker: <Ticker curr={t.conversions} prev={p.conversions} />,   accent: tickerColor(t.conversions, p.conversions) },
     { label: "Cost / Conv.", value: cpcConv > 0 ? fmtUSD(cpcConv) : "—", ticker: <Ticker curr={cpcConv} prev={prevCpcConv} invert />, accent: tickerColor(cpcConv, prevCpcConv, true) },
   ];
@@ -414,17 +417,17 @@ function buildInsights(ads, prevMap) {
 
   if (cpc > 0 && cpc > 20) {
     insights.push({ type: "warning", icon: "💸", title: "High CPC — review bidding strategy",
-      body: `Average CPC is ${fmtUSD(cpc)}, which is high. Consider switching from Max Clicks to Manual CPC bidding, narrowing audience to improve relevance score, or refreshing creatives to improve CTR.` });
+      body: `Average CPC is ${fmtCPC(cpc)}, which is high. Consider switching from Max Clicks to Manual CPC bidding, narrowing audience to improve relevance score, or refreshing creatives to improve CTR.` });
   } else if (cpc > 0 && cpc < 8) {
     insights.push({ type: "positive", icon: "💰", title: "Efficient CPC — strong click value",
-      body: `Average CPC is ${fmtUSD(cpc)}, which is well below LinkedIn norms. Your relevance scores are working. Consider scaling spend to capture more of this efficient traffic.` });
+      body: `Average CPC is ${fmtCPC(cpc)}, which is well below LinkedIn norms. Your relevance scores are working. Consider scaling spend to capture more of this efficient traffic.` });
   }
 
   if (prevCpc > 0 && cpc > 0) {
     const delta = ((cpc - prevCpc) / prevCpc) * 100;
     if (delta >= 25) {
       insights.push({ type: "warning", icon: "📈", title: "CPC rising vs prior period",
-        body: `CPC increased ${delta.toFixed(0)}% vs the prior period (now ${fmtUSD(cpc)}). This may indicate increased auction competition or creative fatigue. Test new ad variants.` });
+        body: `CPC increased ${delta.toFixed(0)}% vs the prior period (now ${fmtCPC(cpc)}). This may indicate increased auction competition or creative fatigue. Test new ad variants.` });
     }
   }
 
