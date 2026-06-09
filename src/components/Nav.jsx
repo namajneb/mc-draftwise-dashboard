@@ -4,6 +4,7 @@ import { auth } from '../firebase'
 import { useAuth } from '../context/AuthContext'
 
 const TABS = [
+  { path: '/overview',     label: 'Overview' },
   { path: '/linkedin-ads', label: 'LinkedIn Ads' },
   { path: '/google-ads',   label: 'Google Ads' },
   { path: '/heyreach',     label: 'HeyReach' },

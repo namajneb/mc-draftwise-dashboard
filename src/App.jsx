@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Nav from './components/Nav'
 import Home from './pages/Home'
+import OverviewDashboard from './dashboards/OverviewDashboard'
 import LinkedInAdsDashboard from './dashboards/LinkedInAdsDashboard'
 import GoogleAdsDashboard from './dashboards/GoogleAdsDashboard'
 import HeyReachDashboard from './dashboards/HeyReachDashboard'
@@ -11,6 +12,7 @@ export default function App() {
       <Nav />
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/overview" element={<OverviewDashboard />} />
         <Route path="/linkedin-ads" element={<LinkedInAdsDashboard />} />
         <Route path="/google-ads" element={<GoogleAdsDashboard />} />
         <Route path="/heyreach" element={<HeyReachDashboard />} />
