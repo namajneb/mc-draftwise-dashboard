@@ -5,9 +5,9 @@ const C = {
   offWhite:  "#f0f2f5",
   lightGrey: "#b2b2b2",
   grey:      "#666666",
-  blue:      "#0A66C2",
-  blueDim:   "#0A66C222",
-  blueLight: "#0A66C214",
+  blue:      "#579ed1",
+  blueDim:   "#579ed122",
+  blueLight: "#579ed114",
   gold:      "#ffab40",
   goldDim:   "#ffab4022",
   black:     "#000000",
@@ -83,7 +83,6 @@ function parseCreativeContent(creative) {
   const creativeRef = typeof creative?.reference === "string"
     ? creative.reference
     : (creative?.reference?.["$URN"] || null);
-
   const data = creative?.variables?.data || {};
   for (const key of Object.keys(data)) {
     const d   = data[key];
@@ -101,7 +100,6 @@ async function fetchPostData(postUrns) {
   const names = {}, imageUrls = {}, carouselUrns = new Set();
   const ugcUrns   = postUrns.filter(u => u.includes("ugcPost"));
   const shareUrns = postUrns.filter(u => u.includes(":share:") || u.includes(":activity:"));
-
   if (ugcUrns.length) {
     await Promise.all(ugcUrns.map(async urn => {
       try {
@@ -111,10 +109,7 @@ async function fetchPostData(postUrns) {
         if (text) names[urn] = text.slice(0, 80);
         const media = share?.media || [];
         if (media.length > 1) carouselUrns.add(urn);
-        const thumb = media[0]?.thumbnails?.[0]?.url
-                   || media[0]?.thumbnail?.url
-                   || media[0]?.originalUrl
-                   || null;
+        const thumb = media[0]?.thumbnails?.[0]?.url || media[0]?.thumbnail?.url || media[0]?.originalUrl || null;
         if (thumb) imageUrls[urn] = thumb;
       } catch {}
     }));
@@ -130,9 +125,7 @@ async function fetchPostData(postUrns) {
         const thumb = share?.content?.thumbnailUrl
                    || entities[0]?.thumbnails?.[0]?.resolvedUrl
                    || entities[0]?.thumbnails?.[0]?.url
-                   || entities[0]?.entityLocation
-                   || share?.content?.media?.thumbnails?.[0]?.url
-                   || null;
+                   || entities[0]?.entityLocation || null;
         if (thumb) imageUrls[urn] = thumb;
       } catch {}
     }));
@@ -163,11 +156,11 @@ function getLiDateRange(days) {
   return { current: { start: toObj(start), end: toObj(end) }, prev: { start: toObj(prevStart), end: toObj(prevEnd) } };
 }
 
-function buildAnalyticsPath(accountId, range, pivot = "ACCOUNT") {
+function buildAnalyticsPath(accountId, range, pivot = "CAMPAIGN") {
   const urn = `urn:li:sponsoredAccount:${accountId}`;
   const { start: s, end: e } = range;
-  return `/v2/adAnalyticsV2?q=analytics&pivot=${pivot}&timeGranularity=ALL` +
-    `&dateRange=(start:(day:${s.day},month:${s.month},year:${s.year}),end:(day:${e.day},month:${e.month},year:${e.year}))` +
+  const dateRange = `(start:(day:${s.day},month:${s.month},year:${s.year}),end:(day:${e.day},month:${e.month},year:${e.year}))`;
+  return `/v2/adAnalyticsV2?q=analytics&pivot=${pivot}&timeGranularity=ALL&dateRange=${dateRange}` +
     `&accounts=List(${encodeURIComponent(urn)})&fields=impressions,clicks,costInLocalCurrency,pivotValues`;
 }
 
@@ -278,7 +271,6 @@ function AdRow({ ad, isTop, isBottom }) {
   const score = scoreAd(m);
   const cpcAccent = m.clicks > 0 ? scoreColor(Math.max(1 - (m.spend / m.clicks) / 30, 0) * 100) : C.lightGrey;
   const daysOld = ad.createdTime ? Math.floor((Date.now() - ad.createdTime) / 86400000) : null;
-
   return (
     <div style={{
       display: "flex", alignItems: "center", gap: 20, padding: "16px 20px",
@@ -287,7 +279,6 @@ function AdRow({ ad, isTop, isBottom }) {
       border: `1px solid ${isTop ? C.green + "44" : isBottom ? C.red + "44" : C.border}`,
     }}>
       <CreativeThumb name={ad.name} imageUrl={ad.imageUrl} isCarousel={ad.isCarousel} />
-
       <div style={{ flex: "1 1 160px", minWidth: 140 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: C.offWhite }}>{ad.name}</span>
@@ -298,7 +289,6 @@ function AdRow({ ad, isTop, isBottom }) {
           <span style={{ color: C.green }}>● Active</span>
         </div>
       </div>
-
       <div style={{ display: "flex", flex: "1 1 480px", alignItems: "flex-start" }}>
         <ScoreBadge score={score} />
         <MetricCell label="Age"     value={daysOld != null ? `${daysOld}d` : "—"} accent={daysOld != null && daysOld < 7 ? C.gold : undefined} />
@@ -334,7 +324,7 @@ function Ticker({ curr, prev, invert = false }) {
   );
 }
 
-function SummaryBar({ ads, prevMap }) {
+function SummaryBar({ ads, prevMap, prevCampaignMetrics }) {
   const t = ads.reduce((acc, a) => {
     acc.impressions += a.metrics.impressions || 0;
     acc.clicks      += a.metrics.clicks      || 0;
@@ -343,7 +333,7 @@ function SummaryBar({ ads, prevMap }) {
     return acc;
   }, { impressions: 0, clicks: 0, spend: 0, conversions: 0 });
 
-  const p = ads.reduce((acc, a) => {
+  const p = prevCampaignMetrics || ads.reduce((acc, a) => {
     const pm = prevMap?.[a.id];
     if (!pm) return acc;
     acc.spend       += pm.spend       || 0;
@@ -393,7 +383,6 @@ function buildInsights(ads, prevMap) {
     acc.conversions += a.metrics.conversions || 0;
     return acc;
   }, { spend: 0, clicks: 0, impressions: 0, conversions: 0 });
-
   const p = ads.reduce((acc, a) => {
     const pm = prevMap?.[a.id];
     if (!pm) return acc;
@@ -405,7 +394,6 @@ function buildInsights(ads, prevMap) {
 
   const ctr      = t.impressions > 0 ? (t.clicks / t.impressions) * 100 : 0;
   const cpc      = t.clicks > 0 ? t.spend / t.clicks : 0;
-  const cpcConv  = t.conversions > 0 ? t.spend / t.conversions : 0;
   const convRate = t.clicks > 0 ? (t.conversions / t.clicks) * 100 : 0;
   const prevCpc  = p.clicks > 0 ? p.spend / p.clicks : 0;
   const prevConv = p.conversions;
@@ -464,7 +452,7 @@ function buildInsights(ads, prevMap) {
     const daysOld = topAd.createdTime ? Math.floor((Date.now() - topAd.createdTime) / 86400000) : null;
     if (s >= 40) {
       insights.push({ type: "positive", icon: "⭐", title: `Scale this ad: ${topAd.name}`,
-        body: `Score ${s}/100 · CTR ${fmtCTR(topAd.metrics.ctr)} · ${topAd.metrics.conversions} conv.${daysOld ? ` · ${daysOld}d old` : ""}. Best performer — increase its budget or duplicate to a similar audience segment.` });
+        body: `Score ${s}/100 · CTR ${fmtCTR(topAd.metrics.ctr)} · ${topAd.metrics.conversions} conv.${daysOld ? ` · ${daysOld}d old` : ""}. Best performer in this campaign — increase its budget or duplicate to a similar audience segment.` });
     }
   }
 
@@ -521,36 +509,34 @@ function InsightsPanel({ ads, prevMap }) {
 }
 
 export default function LinkedInAdsDashboard() {
-  const [campaigns, setCampaigns]     = useState([]);
-  const [ads, setAds]                 = useState([]);
-  const [activeCamId, setActiveCamId] = useState(null);
-  const [prevMap, setPrevMap]         = useState({});
-  const [days, setDays]               = useState(30);
-  const [loading, setLoading]         = useState(false);
-  const [error, setError]             = useState(null);
-  const [showActive, setShowActive]   = useState(true);
-  const [sortBy, setSortBy]           = useState("score");
-  const [sortDir, setSortDir]         = useState("desc");
-  const [lastUpdated, setLastUpdated] = useState(null);
-  const [syncing, setSyncing]         = useState(false);
+  const [campaigns, setCampaigns]         = useState([]);
+  const [ads, setAds]                     = useState([]);
+  const [activeCamId, setActiveCamId]     = useState(null);
+  const [prevMap, setPrevMap]             = useState({});
+  const [prevCampaignMap, setPrevCampaignMap] = useState({});
+  const [days, setDays]                   = useState(30);
+  const [loading, setLoading]             = useState(false);
+  const [error, setError]                 = useState(null);
+  const [showActive, setShowActive]       = useState(true);
+  const [sortBy, setSortBy]               = useState("score");
+  const [sortDir, setSortDir]             = useState("desc");
+  const [lastUpdated, setLastUpdated]     = useState(null);
+  const [syncing, setSyncing]             = useState(false);
 
   const loadData = useCallback(async (daysN) => {
     setLoading(true); setError(null); setCampaigns([]); setAds([]); setActiveCamId(null);
     try {
       const { current, prev } = getLiDateRange(daysN);
 
-      const [campaignAnalytics, creativeAnalytics, prevCreativeAnalytics] = await Promise.all([
+      const [campaignAnalytics, creativeAnalytics, prevCreativeAnalytics, prevCampaignAnalytics] = await Promise.all([
         fetchAnalytics(ACCOUNT.id, current, "CAMPAIGN"),
         fetchAnalytics(ACCOUNT.id, current, "CREATIVE").catch(() => []),
         fetchAnalytics(ACCOUNT.id, prev,    "CREATIVE").catch(() => []),
+        fetchAnalytics(ACCOUNT.id, prev,    "CAMPAIGN").catch(() => []),
       ]);
 
-      const camIds = campaignAnalytics
-        .map(el => (el.pivotValues?.[0] || "").split(":").pop())
-        .filter(Boolean);
-      const creativeIds = creativeAnalytics
-        .map(el => (el.pivotValues?.[0] || "").split(":").pop())
-        .filter(Boolean);
+      const camIds = campaignAnalytics.map(el => (el.pivotValues?.[0] || "").split(":").pop()).filter(Boolean);
+      const creativeIds = creativeAnalytics.map(el => (el.pivotValues?.[0] || "").split(":").pop()).filter(Boolean);
 
       const [rawCampaigns, rawCreatives, fetchedCampaigns, fetchedCreatives] = await Promise.all([
         fetchCampaigns(ACCOUNT.id).catch(() => []),
@@ -589,8 +575,7 @@ export default function LinkedInAdsDashboard() {
       setCampaigns(campaigns);
       setActiveCamId(campaigns[0].id);
 
-      const creativeToCampaign = {};
-      const creativeMetaMap    = {};
+      const creativeToCampaign = {}, creativeMetaMap = {};
       resolvedCreatives.forEach(c => {
         const camUrn = typeof c.campaign === "string" ? c.campaign : (c.campaign?.["$URN"] || "");
         const camId  = camUrn.split(":").pop();
@@ -611,8 +596,14 @@ export default function LinkedInAdsDashboard() {
       });
       setPrevMap(prevMapBuilt);
 
-      const fallbackCamId = String(campaigns[0].id);
+      const prevCampaignMapBuilt = {};
+      prevCampaignAnalytics.forEach(el => {
+        const id = String((el.pivotValues?.[0] || "").split(":").pop() || "");
+        if (id) prevCampaignMapBuilt[id] = toMetrics(el);
+      });
+      setPrevCampaignMap(prevCampaignMapBuilt);
 
+      const fallbackCamId = String(campaigns[0].id);
       const adsData = creativeAnalytics.length
         ? creativeAnalytics.map(el => {
             const urn      = el.pivotValues?.[0] || "";
@@ -629,7 +620,7 @@ export default function LinkedInAdsDashboard() {
             return { id, campaignId: camId, name, imageUrl, isCarousel, createdTime: created, status: creative?.status || null, metrics: toMetrics(el) };
           })
         : campaignAnalytics.map(el => {
-            const id   = String((el.pivotValues?.[0] || "").split(":").pop() || ACCOUNT.id);
+            const id   = String((el.pivotValues?.[0] || "").split(":").pop() || "");
             const camp = resolvedCampaigns.find(c => String(c.id) === id);
             return { id, campaignId: id, name: camp?.name || `Campaign #${id.slice(-6)}`, imageUrl: null, createdTime: null, metrics: toMetrics(el) };
           });
@@ -695,39 +686,37 @@ export default function LinkedInAdsDashboard() {
   return (
     <div style={{ minHeight: "100vh", background: C.black, fontFamily: "'Inter', sans-serif" }}>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         @keyframes spin { to { transform: rotate(360deg); } }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         button { font-family: 'Inter', sans-serif; }
       `}</style>
 
       {/* Controls Bar */}
-      <div style={{ background: C.black, padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 56, gap: 16, flexWrap: "wrap", borderBottom: `1px solid #1a1a1a` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ color: C.white, fontWeight: 700, fontSize: 14, letterSpacing: "0.01em" }}>LinkedIn Ads Performance</span>
-        </div>
-
-        <div style={{ display: "flex", gap: 3 }}>
-          {[7, 14, 30, 60, 90].map(d => (
-            <button key={d} onClick={() => handleDaySwitch(d)} style={{
-              padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer",
-              background: days === d ? C.blue : "transparent",
-              color: days === d ? C.white : C.grey,
-              fontSize: 11, fontFamily: "'Inter', sans-serif", transition: "all 0.15s",
-            }}>{d}d</button>
-          ))}
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <div style={{ background: C.black, padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48, borderBottom: "1px solid #1a1a1a" }}>
+        <span style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>LinkedIn Ads Performance</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div style={{ display: "flex", gap: 3 }}>
+            {[7, 14, 30, 60, 90].map(d => (
+              <button key={d} onClick={() => handleDaySwitch(d)} style={{
+                padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer",
+                background: days === d ? C.blue : "transparent",
+                color: days === d ? C.white : C.grey,
+                fontSize: 11, transition: "all 0.15s",
+              }}>{d}d</button>
+            ))}
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-            <span style={{ fontSize: 11, color: C.grey, fontFamily: "'Inter', sans-serif" }}>Active only</span>
+            <span style={{ fontSize: 11, color: C.grey }}>Active only</span>
             <div onClick={() => setShowActive(v => !v)} style={{ width: 32, height: 18, borderRadius: 9, cursor: "pointer", position: "relative", background: showActive ? C.blue : "#333", transition: "background 0.2s" }}>
-              <div style={{ position: "absolute", top: 3, left: showActive ? 17 : 3, width: 12, height: 12, borderRadius: "50%", background: C.white, transition: "left 0.2s" }} />
+              <div style={{ position: "absolute", top: 3, left: showActive ? 17 : 3, width: 12, height: 12, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
             </div>
           </div>
-          {lastUpdated && !syncing && <span style={{ fontSize: 10, color: C.grey, fontFamily: "'Inter', sans-serif" }}>Synced {timeSince(lastUpdated)}</span>}
+          {lastUpdated && !syncing && <span style={{ fontSize: 10, color: C.grey }}>Synced {timeSince(lastUpdated)}</span>}
           <button onClick={handleRefresh} disabled={syncing} style={{
             padding: "4px 10px", borderRadius: 5, border: `1px solid ${C.border}`,
             background: "transparent", color: C.grey, cursor: syncing ? "default" : "pointer",
-            fontSize: 11, fontFamily: "'Inter', sans-serif", transition: "color 0.15s", opacity: syncing ? 0.5 : 1,
+            fontSize: 11, transition: "color 0.15s", opacity: syncing ? 0.5 : 1,
           }}
           onMouseEnter={e => { if (!syncing) e.currentTarget.style.color = C.lightGrey; }}
           onMouseLeave={e => e.currentTarget.style.color = C.grey}
@@ -735,65 +724,45 @@ export default function LinkedInAdsDashboard() {
         </div>
       </div>
 
-      {/* Campaign Tabs */}
-      <div style={{ background: C.black, borderBottom: `1px solid ${C.border}`, padding: "0 32px", display: "flex", gap: 2, alignItems: "stretch", overflowX: "auto" }}>
-        {(() => {
-          const allActive  = activeCamId === "__all__";
-          const allImpr    = campaigns.reduce((s, c) => s + (c.metrics?.impressions || 0), 0);
-          const allClicks  = campaigns.reduce((s, c) => s + (c.metrics?.clicks || 0), 0);
-          const allCtr     = allImpr > 0 ? allClicks / allImpr : 0;
-          const allPImpr   = ads.reduce((s, a) => s + (prevMap[a.id]?.impressions || 0), 0);
-          const allPClicks = ads.reduce((s, a) => s + (prevMap[a.id]?.clicks || 0), 0);
-          const allPCtr    = allPImpr > 0 ? allPClicks / allPImpr : 0;
-          return (
-            <button onClick={() => setActiveCamId("__all__")} style={{
-              display: "flex", flexDirection: "column", justifyContent: "center", gap: 4,
-              padding: "14px 24px", border: "none", background: "none", cursor: "pointer",
-              whiteSpace: "nowrap", textAlign: "left",
-              borderBottom: allActive ? `2px solid ${C.blue}` : "2px solid transparent",
-              marginBottom: -1, transition: "all 0.15s",
-            }}>
-              <span style={{ fontSize: 17, fontWeight: 500, color: allActive ? C.offWhite : C.lightGrey }}>All Campaigns</span>
-              {!loading && allCtr > 0 && (
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: ctrColor(allCtr), fontFamily: "'Inter', sans-serif" }}>{(allCtr * 100).toFixed(2)}% CTR</span>
-                  <Ticker curr={allCtr} prev={allPCtr} />
-                </span>
-              )}
-            </button>
-          );
-        })()}
-        {campaigns.map(c => {
-          const active  = activeCamId === c.id;
-          const clicks  = c.metrics?.clicks || 0;
-          const impr    = c.metrics?.impressions || 0;
-          const ctr     = impr > 0 ? clicks / impr : 0;
-          const camAds  = ads.filter(a => a.campaignId === String(c.id));
-          const pImpr   = camAds.reduce((s, a) => s + (prevMap[a.id]?.impressions || 0), 0);
-          const pClicks = camAds.reduce((s, a) => s + (prevMap[a.id]?.clicks || 0), 0);
-          const pCtr    = pImpr > 0 ? pClicks / pImpr : 0;
-          return (
-            <button key={c.id} onClick={() => setActiveCamId(c.id)} style={{
-              display: "flex", flexDirection: "column", justifyContent: "center", gap: 4,
-              padding: "14px 24px", border: "none", background: "none", cursor: "pointer",
-              whiteSpace: "nowrap", textAlign: "left",
-              borderBottom: active ? `2px solid ${C.blue}` : "2px solid transparent",
-              marginBottom: -1, transition: "all 0.15s",
-            }}>
-              <span style={{ fontSize: 17, fontWeight: 500, color: active ? C.offWhite : C.lightGrey }}>{c.name}</span>
-              {!loading && ctr > 0 && (
-                <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: ctrColor(ctr), fontFamily: "'Inter', sans-serif" }}>{(ctr * 100).toFixed(2)}% CTR</span>
-                  <Ticker curr={ctr} prev={pCtr} />
-                </span>
-              )}
-            </button>
-          );
-        })}
-        {loading && (
-          <div style={{ display: "flex", alignItems: "center", padding: "0 16px", fontSize: 11, color: C.lightGrey }}>Loading…</div>
-        )}
-      </div>
+      {/* Campaign Grid */}
+      {campaigns.length > 0 && (
+        <div style={{ background: C.black, borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ maxWidth: 1300, margin: "0 auto", padding: "14px 32px" }}>
+            <div style={{ marginBottom: 12 }}>
+              <span style={{ fontSize: 10, fontWeight: 600, color: C.grey, textTransform: "uppercase", letterSpacing: "0.1em" }}>Campaigns</span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+              {campaigns
+                .filter(c => !showActive || c.status === "ACTIVE")
+                .map(c => {
+                  const isSelected = activeCamId === c.id;
+                  const isActive   = c.status === "ACTIVE";
+                  const spend = c.metrics?.spend || 0;
+                  const convs = c.metrics?.conversions || 0;
+                  return (
+                    <button key={c.id} onClick={() => setActiveCamId(c.id)} style={{
+                      padding: "10px 12px", borderRadius: 8, textAlign: "left", cursor: "pointer",
+                      border: "1px solid transparent",
+                      borderBottom: `2px solid ${isSelected ? C.blue : "transparent"}`,
+                      background: C.charcoal, transition: "all 0.15s", opacity: isActive ? 1 : 0.5,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                        <div style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? C.green : C.grey, flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, fontWeight: 500, color: isSelected ? C.white : C.lightGrey, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{c.name}</span>
+                      </div>
+                      {!loading && (spend > 0 || convs > 0) && (
+                        <div style={{ fontSize: 10, color: C.grey }}>{fmtUSD(spend)} · {fmt(convs)} conv.</div>
+                      )}
+                      {!isActive && (
+                        <div style={{ fontSize: 9, color: C.grey, marginTop: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>Paused</div>
+                      )}
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ maxWidth: 1300, margin: "0 auto", padding: "24px 32px" }}>
         {error && (
@@ -818,13 +787,13 @@ export default function LinkedInAdsDashboard() {
           <>
             {activeCamId && campaignAds.length > 0 && (
               <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>
-                {ACCOUNT.name} · Last {days} days · {campaignAds.length} ads
+                {ACCOUNT.name} Ad Account · Last {days} days · {campaignAds.length} ads
               </div>
             )}
 
             {campaignAds.length > 0 && (
               <>
-                <SummaryBar ads={campaignAds} prevMap={prevMap} />
+                <SummaryBar ads={campaignAds} prevMap={prevMap} prevCampaignMetrics={prevCampaignMap?.[String(activeCamId)]} />
                 <InsightsPanel ads={campaignAds} prevMap={prevMap} />
 
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
