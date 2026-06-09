@@ -227,7 +227,20 @@ function fmtCPConv(spend, conv) { return conv > 0 ? fmtUSD(spend / conv) : "—"
 
 const THUMB_COLORS = ["#dde3ea","#d6dde6","#e2ddd8","#d8e2dd","#e0dae2","#dde0e2","#e2e0d8","#d8dce2","#e2d8dd","#dadada"];
 
-function CreativeThumb({ name, imageUrl, isCarousel }) {
+function CreativeThumb({ name, imageUrl, previewSrc, isCarousel }) {
+  if (previewSrc) {
+    const scale = 187 / 552;
+    return (
+      <div style={{ width: 187, height: 187, borderRadius: 8, flexShrink: 0, overflow: "hidden", border: `1px solid ${C.border}`, background: C.surface, position: "relative" }}>
+        <iframe
+          src={previewSrc}
+          title={name}
+          scrolling="no"
+          style={{ width: 552, height: Math.ceil(187 / scale), transform: `scale(${scale})`, transformOrigin: "top left", border: "none", pointerEvents: "none" }}
+        />
+      </div>
+    );
+  }
   if (imageUrl) {
     return (
       <div style={{ position: "relative", flexShrink: 0, width: 187, height: 187 }}>
