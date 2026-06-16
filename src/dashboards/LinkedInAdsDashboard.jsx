@@ -253,10 +253,19 @@ function CreativeThumb({ name, imageUrl, previewSrc, isCarousel }) {
       </div>
     );
   }
-  const color = THUMB_COLORS[Math.abs((name?.charCodeAt(0) ?? 0) + (name?.charCodeAt(2) ?? 0)) % THUMB_COLORS.length];
+  const bgColors = ["#1a2030","#1a2820","#2a1a20","#201a2a","#1a2228","#282018","#181c28","#281820","#201828","#1e2020"];
+  const accents  = ["#579ed1","#3dbb7a","#e05252","#a78bfa","#38bdf8","#ffab40","#4ade80","#f472b6","#818cf8","#94a3b8"];
+  const colorIdx = Math.abs((name?.charCodeAt(0) ?? 0) + (name?.charCodeAt(2) ?? 0)) % bgColors.length;
+  const bg       = bgColors[colorIdx];
+  const accent   = accents[colorIdx];
+  const displayName = name ? name.slice(0, 60) : "Ad Creative";
   return (
-    <div style={{ width: 187, height: 187, borderRadius: 8, flexShrink: 0, background: color, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${C.border}` }}>
-      <span style={{ fontSize: 40, opacity: 0.45 }}>📣</span>
+    <div style={{ width: 187, height: 187, borderRadius: 8, flexShrink: 0, background: bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, border: `1px solid rgba(255,255,255,0.07)` }}>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect width="24" height="24" rx="4" fill={accent} opacity="0.18"/>
+        <path d="M6 8h2v8H6V8zm5-1a3 3 0 0 1 3 3v5h-2v-5a1 1 0 0 0-1-1 1 1 0 0 0-1 1v5h-2V7h2v.93A3 3 0 0 1 11 7z" fill={accent}/>
+      </svg>
+      <span style={{ fontSize: 11, fontWeight: 500, color: "#c8cdd4", textAlign: "center", padding: "0 12px", lineHeight: 1.4, wordBreak: "break-word" }}>{displayName}</span>
     </div>
   );
 }
@@ -589,7 +598,6 @@ export default function LinkedInAdsDashboard() {
           : [{ id: "__all__", name: "All Campaigns", status: "ACTIVE", metrics: { ...zeroMetrics } }];
 
       setCampaigns(campaigns);
-      setActiveCamId(campaigns[0].id);
 
       const creativeToCampaign = {}, creativeMetaMap = {};
       resolvedCreatives.forEach(c => {
@@ -642,6 +650,9 @@ export default function LinkedInAdsDashboard() {
           });
 
       setAds(adsData);
+      const adCamIds = new Set(adsData.map(a => a.campaignId));
+      const firstCam = campaigns.find(c => adCamIds.has(String(c.id))) || campaigns[0];
+      setActiveCamId(firstCam.id);
       setLastUpdated(new Date().toISOString());
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
