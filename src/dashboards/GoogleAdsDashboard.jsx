@@ -802,8 +802,7 @@ export default function GoogleAdsDashboard() {
       }));
       console.log("[campaigns]", rawCampaigns.map(c => `${c.name} → ${c.channelType}`));
       setCampaigns(rawCampaigns);
-      const firstActive = rawCampaigns.find(c => c.status === "ENABLED") || rawCampaigns[0];
-      if (firstActive) setActiveCamId(firstActive.id);
+      setActiveCamId("__all__");
 
       // Build previous-period lookup by ad ID
       const pMap = {};
@@ -972,10 +971,10 @@ export default function GoogleAdsDashboard() {
 
   const activeCampaign     = campaigns.find(c => c.id === activeCamId);
   const isShoppingCampaign = activeCampaign?.channelType === "SHOPPING";
-  const campaignShoppingProducts     = shoppingProducts.filter(p => p.campaignId === activeCamId);
-  const campaignPrevShoppingProducts = prevShoppingProducts.filter(p => p.campaignId === activeCamId);
+  const campaignShoppingProducts     = activeCamId === "__all__" ? shoppingProducts : shoppingProducts.filter(p => p.campaignId === activeCamId);
+  const campaignPrevShoppingProducts = activeCamId === "__all__" ? prevShoppingProducts : prevShoppingProducts.filter(p => p.campaignId === activeCamId);
 
-  const campaignAds = ads.filter(a => a.campaignId === activeCamId);
+  const campaignAds = activeCamId === "__all__" ? ads : ads.filter(a => a.campaignId === activeCamId);
   const scored  = [...campaignAds].sort((a, b) => scoreAd(b.metrics) - scoreAd(a.metrics));
   const cut     = Math.max(1, Math.ceil(scored.length * 0.2));
   const topIds  = new Set(scored.slice(0, cut).map(a => a.id));
@@ -1078,6 +1077,28 @@ export default function GoogleAdsDashboard() {
               <span style={{ fontSize: 10, fontWeight: 600, color: C.grey, textTransform: "uppercase", letterSpacing: "0.1em" }}>Campaigns</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+              {(() => {
+                const isSelected = activeCamId === "__all__";
+                const allAdsSpend  = ads.reduce((s, a) => s + (a.metrics?.spend || 0), 0);
+                const allShopSpend = shoppingProducts.reduce((s, p) => s + (p.spend || 0), 0);
+                const allSpend = allAdsSpend + allShopSpend;
+                const allAdsConvs  = ads.reduce((s, a) => s + (a.metrics?.conversions || 0), 0);
+                const allShopConvs = shoppingProducts.reduce((s, p) => s + (p.conversions || 0), 0);
+                const allConvs = allAdsConvs + allShopConvs;
+                return (
+                  <button onClick={() => setActiveCamId("__all__")} style={{
+                    padding: "10px 12px", borderRadius: 8, textAlign: "left", cursor: "pointer",
+                    border: `1px solid ${isSelected ? C.blue + "44" : "transparent"}`,
+                    borderBottom: `2px solid ${isSelected ? C.blue : "transparent"}`,
+                    background: C.charcoal, transition: "all 0.15s",
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: isSelected ? C.white : C.lightGrey, lineHeight: 1.4, marginBottom: 5 }}>All Campaigns</div>
+                    {!loading && (allSpend > 0 || allConvs > 0) && (
+                      <div style={{ fontSize: 10, color: C.grey, fontFamily: "'Inter', sans-serif" }}>{fmtUSD(allSpend)} · {fmt(allConvs)} conv.</div>
+                    )}
+                  </button>
+                );
+              })()}
               {campaigns
                 .filter(c => camFilter === "all" || c.status === "ENABLED")
                 .map(c => {
@@ -1174,7 +1195,7 @@ export default function GoogleAdsDashboard() {
                   <>
                     <SummaryBar ads={campaignAds} prevMap={prevMap} />
                     <InsightsPanel ads={campaignAds} prevMap={prevMap} />
-                    <KeywordSummary keywords={keywords.filter(kw => kw.campaignId === activeCamId)} />
+                    <KeywordSummary keywords={activeCamId === "__all__" ? keywords : keywords.filter(kw => kw.campaignId === activeCamId)} />
 
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginRight: 4 }}>Ads</span>

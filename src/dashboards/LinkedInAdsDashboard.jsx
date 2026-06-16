@@ -652,7 +652,7 @@ export default function LinkedInAdsDashboard() {
       setAds(adsData);
       const adCamIds = new Set(adsData.map(a => a.campaignId));
       const firstCam = campaigns.find(c => adCamIds.has(String(c.id))) || campaigns[0];
-      setActiveCamId(firstCam.id);
+      setActiveCamId("__all__");
       setLastUpdated(new Date().toISOString());
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
@@ -759,8 +759,27 @@ export default function LinkedInAdsDashboard() {
               <span style={{ fontSize: 10, fontWeight: 600, color: C.grey, textTransform: "uppercase", letterSpacing: "0.1em" }}>Campaigns</span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+              {(() => {
+                const isSelected = activeCamId === "__all__";
+                const realCampaigns = campaigns.filter(c => c.id !== "__all__");
+                const allSpend = realCampaigns.reduce((s, c) => s + (c.metrics?.spend || 0), 0);
+                const allConvs = realCampaigns.reduce((s, c) => s + (c.metrics?.conversions || 0), 0);
+                return (
+                  <button onClick={() => setActiveCamId("__all__")} style={{
+                    padding: "10px 12px", borderRadius: 8, textAlign: "left", cursor: "pointer",
+                    border: `1px solid ${isSelected ? C.blue + "44" : "transparent"}`,
+                    borderBottom: `2px solid ${isSelected ? C.blue : "transparent"}`,
+                    background: C.charcoal, transition: "all 0.15s",
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: isSelected ? C.white : C.lightGrey, lineHeight: 1.4, marginBottom: 5 }}>All Campaigns</div>
+                    {!loading && (allSpend > 0 || allConvs > 0) && (
+                      <div style={{ fontSize: 10, color: C.grey }}>{fmtUSD(allSpend)} · {fmt(allConvs)} conv.</div>
+                    )}
+                  </button>
+                );
+              })()}
               {campaigns
-                .filter(c => !showActive || c.status === "ACTIVE")
+                .filter(c => c.id !== "__all__" && (!showActive || c.status === "ACTIVE"))
                 .map(c => {
                   const isSelected = activeCamId === c.id;
                   const isActive   = c.status === "ACTIVE";
