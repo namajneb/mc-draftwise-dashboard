@@ -21,9 +21,38 @@ const C = {
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-function getDateRange(days) {
+function isMonthKey(v) { return typeof v === "string" && /^\d{4}-\d{2}$/.test(v); }
+
+function getTrailingMonths(count = 5) {
+  const now = new Date();
+  const out = [];
+  for (let i = 1; i <= count; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const y = d.getFullYear();
+    const m = d.getMonth() + 1;
+    const key = `${y}-${String(m).padStart(2, "0")}`;
+    const sameYear = y === now.getFullYear();
+    const label = d.toLocaleString("en-US", { month: "short" }) + (sameYear ? "" : ` '${String(y).slice(-2)}`);
+    out.push({ key, label });
+  }
+  return out;
+}
+
+function getDateRange(value) {
   const pad = n => String(n).padStart(2, "0");
   const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  if (isMonthKey(value)) {
+    const [y, m] = value.split("-").map(Number);
+    const start    = new Date(y, m - 1, 1);
+    const end      = new Date(y, m, 0);
+    const prevStart = new Date(y, m - 2, 1);
+    const prevEnd   = new Date(y, m - 1, 0);
+    return {
+      current: { since: fmt(start), until: fmt(end) },
+      prev:    { since: fmt(prevStart), until: fmt(prevEnd) },
+    };
+  }
+  const days = value;
   const now   = new Date();
   const end   = new Date(now);
   const start = new Date(now); start.setDate(start.getDate() - days + 1);
@@ -1025,7 +1054,7 @@ export default function GoogleAdsDashboard() {
       <div style={{ background: C.black, padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48, borderBottom: "1px solid #1a1a1a" }}>
         <span style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>Google Ads Performance</span>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ display: "flex", gap: 3 }}>
+          <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
             {[7, 14, 30, 60, 90].map(d => (
               <button key={d} onClick={() => handleDaySwitch(d)} style={{
                 padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer",
@@ -1033,6 +1062,15 @@ export default function GoogleAdsDashboard() {
                 color: days === d ? C.white : C.grey,
                 fontSize: 11, transition: "all 0.15s",
               }}>{d}d</button>
+            ))}
+            <div style={{ width: 1, height: 14, background: C.border, margin: "0 4px" }} />
+            {getTrailingMonths().map(m => (
+              <button key={m.key} onClick={() => handleDaySwitch(m.key)} style={{
+                padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer",
+                background: days === m.key ? C.blue : "transparent",
+                color: days === m.key ? C.white : C.grey,
+                fontSize: 11, transition: "all 0.15s",
+              }}>{m.label}</button>
             ))}
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
@@ -1168,7 +1206,7 @@ export default function GoogleAdsDashboard() {
               <>
                 {activeCamId && campaignShoppingProducts.length > 0 && (
                   <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>
-                    {account?.name} · Last {days} days · {campaignShoppingProducts.length} products
+                    {account?.name} · {isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`} · {campaignShoppingProducts.length} products
                   </div>
                 )}
                 {campaignShoppingProducts.length > 0 && (
@@ -1187,7 +1225,7 @@ export default function GoogleAdsDashboard() {
               <>
                 {activeCamId && campaignAds.length > 0 && (
                   <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>
-                    {account?.name} · Last {days} days · {campaignAds.length} ads
+                    {account?.name} · {isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`} · {campaignAds.length} ads
                   </div>
                 )}
 
