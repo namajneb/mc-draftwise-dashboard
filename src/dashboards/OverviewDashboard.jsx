@@ -67,10 +67,21 @@ function toLinkedInRange(since, until) {
 }
 
 // ── API fetchers ───────────────────────────────────────────────────────────────
+function liErrorMessage(json, status) {
+  if (json && json._setupRequired) {
+    return "LinkedIn is not connected. Add the LinkedIn API credentials in Vercel, then redeploy.";
+  }
+  if (json && json._authExpired) {
+    return json.error || "LinkedIn authorization has expired. Reconnect the LinkedIn app.";
+  }
+  const upstream = (json && json.upstream) || json || {};
+  return upstream.message || (json && json.error) || `LinkedIn request failed (${status}).`;
+}
+
 async function liApiFetch(path) {
   const res  = await fetch(`/api/linkedin?path=${encodeURIComponent(path)}`);
   const json = await res.json();
-  if (!res.ok) throw new Error(JSON.stringify(json));
+  if (!res.ok) throw new Error(liErrorMessage(json, res.status));
   return json;
 }
 
