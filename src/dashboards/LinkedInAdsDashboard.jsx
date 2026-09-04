@@ -582,9 +582,12 @@ const CMP_COLS = [
   { key: "impressions", label: "Impr.",        dir:  0, render: r => fmt(r.impressions) },
   { key: "clicks",      label: "Clicks",       dir:  0, render: r => fmt(r.clicks) },
   { key: "ctr",         label: "CTR",          dir:  1, render: r => fmtCTR(r.ctr) },
-  { key: "cpc",         label: "CPC",          dir: -1, render: r => fmtCPC(r.cpc) },
+  // zeroMissing: a 0 here is an undefined ratio (no clicks / no conversions), not a
+  // result — so it must be ignored rather than winning a lowest-is-better column.
+  // Conversions and CTR are the opposite: zero is a real, and bad, outcome.
+  { key: "cpc",         label: "CPC",          dir: -1, zeroMissing: true, render: r => fmtCPC(r.cpc) },
   { key: "conversions", label: "Conv.",        dir:  1, render: r => fmt(r.conversions) },
-  { key: "cpcConv",     label: "Cost / Conv.", dir: -1, render: r => r.cpcConv > 0 ? fmtUSD(r.cpcConv) : "—" },
+  { key: "cpcConv",     label: "Cost / Conv.", dir: -1, zeroMissing: true, render: r => r.cpcConv > 0 ? fmtUSD(r.cpcConv) : "—" },
 ];
 
 // Ratios are recomputed from summed volumes, never averaged across campaigns —
@@ -601,11 +604,11 @@ function cmpRow(id, name, status, m, prev) {
   };
 }
 
-// Zero means "no data" for a ratio (no clicks, no conversions), so it must not win
-// a lowest-is-better column — otherwise an unused campaign shows as the best CPC.
-function bestWorst(rows, key, dir) {
+// Only ratio columns treat 0 as missing (see zeroMissing above); for conversions a
+// zero is a real outcome and has to be eligible to be the worst.
+function bestWorst(rows, key, dir, zeroMissing) {
   if (!dir || rows.length < 2) return {};
-  const vals = rows.map(r => r[key]).filter(v => v > 0);
+  const vals = rows.map(r => r[key]).filter(v => Number.isFinite(v) && (zeroMissing ? v > 0 : true));
   if (vals.length < 2) return {};
   const hi = Math.max(...vals), lo = Math.min(...vals);
   if (hi === lo) return {};
@@ -616,7 +619,7 @@ function CampaignCompare({ rows }) {
   if (rows.length < 2) return null;
 
   const marks = {};
-  CMP_COLS.forEach(col => { marks[col.key] = bestWorst(rows, col.key, col.dir); });
+  CMP_COLS.forEach(col => { marks[col.key] = bestWorst(rows, col.key, col.dir, col.zeroMissing); });
 
   const tot = rows.reduce((a, r) => ({
     spend: a.spend + r.spend, clicks: a.clicks + r.clicks,
@@ -630,7 +633,9 @@ function CampaignCompare({ rows }) {
 
   const cellColor = (col, r) => {
     const mk = marks[col.key];
-    if (!mk.best || !(r[col.key] > 0)) return C.offWhite;
+    if (mk.best === undefined) return C.offWhite;
+    // A cell rendered as "—" carries no value, so it is never marked either way.
+    if (col.zeroMissing && !(r[col.key] > 0)) return C.offWhite;
     if (r[col.key] === mk.best)  return C.green;
     if (r[col.key] === mk.worst) return C.red;
     return C.offWhite;
@@ -957,8 +962,8 @@ export default function LinkedInAdsDashboard() {
       {/* Campaign Grid */}
       {campaigns.length > 0 && (
         <div style={{ background: C.black, borderBottom: `1px solid ${C.border}` }}>
-          <div style={{ maxWidth: 1300, margin: "0 auto", padding: "14px 32px" }}>
-            <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ maxWidth: 1300, margin: "0 auto", padding: "10px 32px" }}>
+            <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 10, fontWeight: 600, color: C.grey, textTransform: "uppercase", letterSpacing: "0.1em" }}>Campaigns</span>
               <span style={{ fontSize: 10, color: C.grey }}>
                 {selectedRealIds.length >= 2
@@ -972,22 +977,30 @@ export default function LinkedInAdsDashboard() {
                 }}>Clear</button>
               )}
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 5 }}>
               {(() => {
                 const isSelected = isAll;
                 const realCampaigns = campaigns.filter(c => c.id !== "__all__");
                 const allSpend = realCampaigns.reduce((s, c) => s + (c.metrics?.spend || 0), 0);
                 const allConvs = realCampaigns.reduce((s, c) => s + (c.metrics?.conversions || 0), 0);
                 return (
-                  <button onClick={selectAll} style={{
-                    padding: "10px 12px", borderRadius: 8, textAlign: "left", cursor: "pointer",
+                  <button onClick={selectAll}
+                    title={`All Campaigns — ${fmtUSD(allSpend)}, ${fmt(allConvs)} conv.`}
+                    style={{
+                    padding: "6px 9px", borderRadius: 6, cursor: "pointer",
+                    display: "flex", alignItems: "center", gap: 6,
                     border: `1px solid ${isSelected ? C.blue + "44" : "transparent"}`,
                     borderBottom: `2px solid ${isSelected ? C.blue : "transparent"}`,
                     background: C.charcoal, transition: "all 0.15s",
                   }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: isSelected ? C.white : C.lightGrey, lineHeight: 1.4, marginBottom: 5 }}>All Campaigns</div>
-                    {!loading && (allSpend > 0 || allConvs > 0) && (
-                      <div style={{ fontSize: 10, color: C.grey }}>{fmtUSD(allSpend)} · {fmt(allConvs)} conv.</div>
+                    <span style={{ flex: 1, minWidth: 0, textAlign: "left", fontSize: 11.5, fontWeight: 500,
+                                   color: isSelected ? C.white : C.lightGrey, overflow: "hidden",
+                                   textOverflow: "ellipsis", whiteSpace: "nowrap" }}>All Campaigns</span>
+                    {!loading && allSpend > 0 && (
+                      <span style={{ fontSize: 9.5, color: C.grey, flexShrink: 0 }}>{fmtUSD(allSpend)}</span>
+                    )}
+                    {!loading && allConvs > 0 && (
+                      <span style={{ fontSize: 9.5, color: C.green, fontWeight: 600, flexShrink: 0 }}>{fmt(allConvs)}</span>
                     )}
                   </button>
                 );
@@ -1005,13 +1018,14 @@ export default function LinkedInAdsDashboard() {
                       onKeyDown={e => {
                         if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOnly(c.id); }
                       }}
+                      title={`${c.name} — ${fmtUSD(spend)}, ${fmt(convs)} conv.${isActive ? "" : " (paused)"}`}
                       style={{
-                      padding: "10px 12px", borderRadius: 8, textAlign: "left", cursor: "pointer",
+                      padding: "6px 9px", borderRadius: 6, cursor: "pointer",
                       border: `1px solid ${isSelected ? C.blue + "33" : "transparent"}`,
                       borderBottom: `2px solid ${isSelected ? C.blue : "transparent"}`,
                       background: C.charcoal, transition: "all 0.15s", opacity: isActive ? 1 : 0.5,
                     }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                         <div
                           onClick={e => { e.stopPropagation(); toggleId(c.id); }}
                           role="checkbox" aria-checked={isSelected} tabIndex={0}
@@ -1021,22 +1035,22 @@ export default function LinkedInAdsDashboard() {
                           }}
                           title={isSelected ? "Remove from comparison" : "Add to comparison"}
                           style={{
-                            width: 13, height: 13, borderRadius: 3, flexShrink: 0, cursor: "pointer",
+                            width: 12, height: 12, borderRadius: 3, flexShrink: 0, cursor: "pointer",
                             border: `1px solid ${isSelected ? C.blue : C.grey}`,
                             background: isSelected ? C.blue : "transparent",
                             display: "grid", placeItems: "center",
                           }}>
                           {isSelected && <span style={{ fontSize: 9, lineHeight: 1, fontWeight: 800, color: C.black }}>✓</span>}
                         </div>
-                        <div style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? C.green : C.grey, flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, fontWeight: 500, color: isSelected ? C.white : C.lightGrey, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{c.name}</span>
+                        <div style={{ width: 5, height: 5, borderRadius: "50%", background: isActive ? C.green : C.grey, flexShrink: 0 }} />
+                        <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 500, color: isSelected ? C.white : C.lightGrey, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+                        {!loading && spend > 0 && (
+                          <span style={{ fontSize: 9.5, color: C.grey, flexShrink: 0 }}>{fmtUSD(spend)}</span>
+                        )}
+                        {!loading && convs > 0 && (
+                          <span style={{ fontSize: 9.5, color: C.green, fontWeight: 600, flexShrink: 0 }}>{fmt(convs)}</span>
+                        )}
                       </div>
-                      {!loading && (spend > 0 || convs > 0) && (
-                        <div style={{ fontSize: 10, color: C.grey }}>{fmtUSD(spend)} · {fmt(convs)} conv.</div>
-                      )}
-                      {!isActive && (
-                        <div style={{ fontSize: 9, color: C.grey, marginTop: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>Paused</div>
-                      )}
                     </div>
                   );
                 })}
