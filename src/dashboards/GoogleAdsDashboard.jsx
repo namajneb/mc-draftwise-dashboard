@@ -1097,7 +1097,7 @@ export default function GoogleAdsDashboard() {
       {/* ── Account Tabs — hidden when only one account ── */}
       {accounts.length > 1 && (
         <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
-          <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", gap: 2, overflowX: "auto" }}>
+          <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", gap: 2, flexWrap: "wrap" }}>
           {accounts.map((acc, i) => (
             <button key={acc.id} onClick={() => handleAccSwitch(i)} style={{
               padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer", whiteSpace: "nowrap",

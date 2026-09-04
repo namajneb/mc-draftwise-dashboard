@@ -420,7 +420,9 @@ function AdRow({ ad, isTop, isBottom, campaignName }) {
           )}
         </div>
       </div>
-      <div style={{ display: "flex", flex: "1 1 480px", alignItems: "flex-start" }}>
+      {/* 8 cells at a 56px floor need ~450px; wrapping lets them form rows on a phone
+          instead of pushing the card past the viewport. */}
+      <div style={{ display: "flex", flex: "1 1 480px", alignItems: "flex-start", flexWrap: "wrap", rowGap: 14 }}>
         <ScoreBadge score={score} />
         <MetricCell label="Age"     value={daysOld != null ? `${daysOld}d` : "—"} accent={daysOld != null && daysOld < 7 ? C.gold : undefined} />
         <MetricCell label="Impr."   value={fmt(m.impressions)} />
@@ -621,7 +623,7 @@ function InsightsPanel({ ads, prevMap }) {
           <div style={{ fontSize: 11, color: C.grey, fontFamily: "'Inter', sans-serif", marginTop: 2 }}>{insights.length} recommendation{insights.length !== 1 ? "s" : ""} based on current performance</div>
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
         {insights.map((ins, i) => {
           const clr = INSIGHT_COLORS[ins.type];
           return (
@@ -680,7 +682,31 @@ function bestWorst(rows, key, dir, zeroMissing) {
   return dir > 0 ? { best: hi, worst: lo } : { best: lo, worst: hi };
 }
 
+// The table's natural width measured 1222px in Chrome — its 720px minWidth is a
+// floor, not what it actually occupies. Add the 32px page gutters and the card's own
+// padding and it needs ~1300px, so anything narrower stacks into one block per
+// campaign instead. Stacking keeps every figure reachable; a drag bar hides half of
+// them behind a gesture.
+const COMPARE_STACK_AT = 1360;
+
+function useIsNarrow(px) {
+  const query = `(max-width: ${px}px)`;
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia(query).matches
+  );
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia(query);
+    const onChange = e => setNarrow(e.matches);
+    setNarrow(mq.matches);            // re-sync in case it changed before this ran
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, [query]);
+  return narrow;
+}
+
 function CampaignCompare({ rows }) {
+  const stacked = useIsNarrow(COMPARE_STACK_AT);   // before the early return: hooks are unconditional
   if (rows.length < 2) return null;
 
   const marks = {};
@@ -695,6 +721,10 @@ function CampaignCompare({ rows }) {
   const th = { fontSize: 10, fontWeight: 600, color: C.grey, textTransform: "uppercase",
                letterSpacing: "0.07em", padding: "0 14px 10px", textAlign: "right", whiteSpace: "nowrap" };
   const td = { fontSize: 13, fontWeight: 600, padding: "13px 14px", textAlign: "right", whiteSpace: "nowrap" };
+
+  // Previous-period value for the same metric, recomputed through cmpRow so the
+  // ratio columns are derived the same way in both layouts.
+  const prevOf = (r, key) => (r.prev ? cmpRow(r.id, r.name, r.status, r.prev, null)[key] : 0);
 
   const cellColor = (col, r) => {
     const mk = marks[col.key];
@@ -714,6 +744,46 @@ function CampaignCompare({ rows }) {
           {rows.length} campaigns · best in <span style={{ color: C.green }}>green</span>, worst in <span style={{ color: C.red }}>red</span>
         </span>
       </div>
+      {stacked ? (
+        <div style={{ display: "grid", gap: 8, padding: "14px 14px 16px" }}>
+          {[...rows, totalRow].map((r, i) => {
+            const isTotal = i === rows.length;
+            return (
+              <div key={r.id} style={{
+                background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+                padding: "10px 12px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
+                  {!isTotal && (
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                                   background: r.status === "ACTIVE" ? C.green : C.grey }} />
+                  )}
+                  <span style={{ fontSize: 12, fontWeight: 700, color: isTotal ? C.lightGrey : C.offWhite }}>
+                    {r.name}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))", gap: "9px 10px" }}>
+                  {CMP_COLS.map(col => (
+                    <div key={col.key}>
+                      <div style={{ fontSize: 9, color: C.grey, textTransform: "uppercase",
+                                    letterSpacing: "0.07em", marginBottom: 3 }}>{col.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600,
+                                    color: isTotal ? C.lightGrey : cellColor(col, r) }}>
+                        {col.render(r)}
+                        {!isTotal && col.dir !== 0 && prevOf(r, col.key) > 0 && (
+                          <Ticker curr={r[col.key]} prev={prevOf(r, col.key)} invert={col.dir < 0} />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+      // overflowX stays as a floor, not a scroll affordance: the stacked layout takes
+      // over below 820px, so this only guards odd widths instead of overflowing the page.
       <div style={{ overflowX: "auto", padding: "14px 6px 6px" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
           <thead>
@@ -732,7 +802,7 @@ function CampaignCompare({ rows }) {
                   {r.name}
                 </td>
                 {CMP_COLS.map(col => {
-                  const prevVal = r.prev ? cmpRow(r.id, r.name, r.status, r.prev, null)[col.key] : 0;
+                  const prevVal = prevOf(r, col.key);
                   return (
                     <td key={col.key} style={{ ...td, color: cellColor(col, r) }}>
                       {col.render(r)}
@@ -753,6 +823,7 @@ function CampaignCompare({ rows }) {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
@@ -1026,10 +1097,10 @@ export default function LinkedInAdsDashboard() {
 
       {/* Controls Bar */}
       <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
-        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48 }}>
+        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "8px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 48, flexWrap: "wrap", gap: "8px 16px" }}>
         <span style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>LinkedIn Ads Performance</span>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px 16px", flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <div style={{ display: "flex", gap: 3, alignItems: "center", flexWrap: "wrap" }}>
             {[7, 14, 30, 60, 90].map(d => (
               <button key={d} onClick={() => handleDaySwitch(d)} style={{
                 padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer",
