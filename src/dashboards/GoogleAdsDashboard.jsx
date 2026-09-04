@@ -8,16 +8,18 @@ const C = {
   lightGrey: "#b2b2b2",
   grey:      "#666666",
   blue:      "#579ed1",
-  blueDim:   "#579ed122",
   gold:      "#ffab40",
-  goldDim:   "#ffab4022",
   black:     "#000000",
   charcoal:  "#0c0c0c",
   surface:   "#111111",
+  divider:   "#181818",
   border:    "#1e1e1e",
   green:     "#3dbb7a",
-  greenDim:  "#3dbb7a18",
   red:       "#e05252",
+  // Derived — the same hues at low alpha, for fills sitting behind their own text.
+  blueDim:   "#579ed122",
+  goldDim:   "#ffab4022",
+  greenDim:  "#3dbb7a18",
   redDim:    "#e0525218",
 };
 
@@ -1360,7 +1362,7 @@ export default function GoogleAdsDashboard() {
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         @keyframes spin { to { transform: rotate(360deg); } }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        button { font-family: 'Inter', sans-serif; }
+        button, input { font-family: 'Inter', sans-serif; }
       `}</style>
 
       {/* ── Title + Day Range + Active Toggle ── */}

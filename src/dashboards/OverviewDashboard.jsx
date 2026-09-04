@@ -9,9 +9,16 @@ const C = {
   gold:      "#ffab40",
   black:     "#000000",
   charcoal:  "#0c0c0c",
+  surface:   "#111111",
+  divider:   "#181818",
   border:    "#1e1e1e",
   green:     "#3dbb7a",
   red:       "#e05252",
+  // Derived — the same hues at low alpha, for fills sitting behind their own text.
+  blueDim:   "#579ed122",
+  goldDim:   "#ffab4022",
+  greenDim:  "#3dbb7a18",
+  redDim:    "#e0525218",
 };
 
 const LI_ACCOUNT_ID = "513153545";
@@ -268,7 +275,7 @@ export default function OverviewDashboard() {
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         @keyframes spin { to { transform: rotate(360deg); } }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        button { font-family: 'Inter', sans-serif; }
+        button, input { font-family: 'Inter', sans-serif; }
       `}</style>
 
       <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
