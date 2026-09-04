@@ -796,8 +796,13 @@ export default function LinkedInAdsDashboard() {
             const meta     = creativeMetaMap[id] || {};
             const camId    = creativeToCampaign[id] || fallbackCamId;
             const created  = creative?.changeAuditStamps?.created?.time || null;
-            const imageUrl = meta.imageUrn ? (assetUrlMap[meta.imageUrn] || null)
-                           : (meta.referenceUrn ? (postImageUrls[meta.referenceUrn] || null) : null);
+            // Fall through rather than branch: a creative carrying an imageUrn used to
+            // commit to the asset lookup and return null when it failed, even when the
+            // post behind the same creative had a usable thumbnail. /v2/assets is now
+            // retired (404 RESOURCE_NOT_FOUND), so that branch fails for every creative.
+            const imageUrl = (meta.imageUrn && assetUrlMap[meta.imageUrn])
+                          || (meta.referenceUrn && postImageUrls[meta.referenceUrn])
+                          || null;
             const camName  = resolvedCampaigns.find(c => String(c.id) === camId)?.name || null;
             const name     = meta.name || (meta.referenceUrn && postNames[meta.referenceUrn]) || camName || `Ad #${id.slice(-6)}`;
             const isCarousel = meta.referenceUrn ? carouselUrns.has(meta.referenceUrn) : false;

@@ -13,8 +13,9 @@
 // LINKEDIN_TOKEN, which lapses every two months and takes the dashboard down.
 //
 // After minting, this verifies the credential can actually see the Draftwise ad
-// account — a token for the wrong LinkedIn app or member authorizes fine and then
-// returns empty dashboards, which is a confusing failure to debug later.
+// account AND can read post content — a token for the wrong LinkedIn app or member,
+// or one missing the organic scopes, authorizes fine and then returns empty
+// dashboards or blank creative images, which is confusing to debug later.
 //
 // Prerequisites at https://developer.linkedin.com/ → My Apps → your app:
 //   1. Auth tab → "Authorized redirect URLs" → add EXACTLY:  http://127.0.0.1:4572/
@@ -60,8 +61,14 @@ async function main() {
 
   console.log("\nLinkedIn refresh token helper\n");
   console.log(`Redirect URL that must be registered on the app:  ${REDIRECT}\n`);
-  const chosen = SCOPE_SETS.ads;
-  console.log(`Scopes: ${chosen.scopes.join(" ")}  (requires the ${chosen.product} product)\n`);
+  // Ads scopes alone are NOT enough. Creative thumbnails come from the post behind
+  // each ad — /v2/ugcPosts and /v2/shares — which return 403 ACCESS_DENIED without
+  // r_organization_social. A token minted with only r_ads/r_ads_reporting loads the
+  // dashboard with every metric intact and every image blank, which reads as a broken
+  // renderer rather than a missing permission. Verified 2026-09-04.
+  const chosen = SCOPE_SETS.both;
+  console.log(`Scopes: ${chosen.scopes.join(" ")}`);
+  console.log(`Requires: ${chosen.product}\n`);
 
   const clientId = (await rl.question("Client ID: ")).trim();
   const clientSecret = (await rl.question("Client Secret: ")).trim();
@@ -221,6 +228,7 @@ async function verifyAccountAccess(accessToken) {
 
   const found = accounts.find(a => String(a.id) === DRAFTWISE_ACCOUNT_ID);
   console.log("");
+  await verifyPostAccess(accessToken);
   if (!found) {
     console.log(`  WARNING: Draftwise (${DRAFTWISE_ACCOUNT_ID}) is NOT in that list.`);
     console.log("  These credentials will authorize but the dashboard will stay empty.");
@@ -234,3 +242,25 @@ async function verifyAccountAccess(accessToken) {
 }
 
 main().catch(err => { console.error(`\n${err.message}`); exit(1); });
+
+// Ads scopes are the easy half to get right; the organic scope is the one whose
+// absence is invisible until someone notices the thumbnails are blank.
+async function verifyPostAccess(accessToken) {
+  let res;
+  try {
+    res = await fetch("https://api.linkedin.com/v2/ugcPosts?q=authors&authors=List(urn%3Ali%3Aorganization%3A0)&count=1",
+      { headers: { Authorization: `Bearer ${accessToken}`, "X-Restli-Protocol-Version": "2.0.0" } });
+  } catch {
+    console.log("  Could not check post access; creative images may or may not load.");
+    return;
+  }
+  // A missing scope is 403 regardless of whether org 0 exists, so the status
+  // separates "not allowed" from "allowed but no such organization".
+  if (res.status === 403) {
+    console.log("  WARNING: this token cannot read post content (403 on ugcPosts), so ad");
+    console.log("  creative thumbnails will be blank. The app needs r_organization_social");
+    console.log("  via the Community Management API product.");
+  } else {
+    console.log("  Post content is readable — creative thumbnails will load.");
+  }
+}
