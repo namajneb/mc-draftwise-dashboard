@@ -118,6 +118,41 @@ async function fetchAdPreview(creativeId, accountId) {
   }
 }
 
+// Every preview card is laid out at the same width, so what sets its height is the
+// media's aspect ratio — a 9:16 video card is over twice as tall as a 16:9 one, and
+// this account runs both. LinkedIn's own preview markup declares a flat height=580
+// width=650 for every creative regardless of format, so sizing the frame from it (or
+// from any single constant) clips every card taller than that. The creative's
+// variables carry the real ratio — videoAspectRatio for video, mediaAspectRatio for
+// everything else — plus whether a call-to-action bar is drawn. /v2/adCreativesV2
+// accepts repeated ids= params, so all ~100 creatives cost 3 requests, not 100.
+const SHAPE_CHUNK = 40;
+
+async function fetchCreativeShapes(creativeIds) {
+  const ids    = [...new Set(creativeIds.map(String))].filter(Boolean);
+  const chunks = [];
+  for (let i = 0; i < ids.length; i += SHAPE_CHUNK) chunks.push(ids.slice(i, i + SHAPE_CHUNK));
+
+  const pages = await Promise.all(chunks.map(chunk =>
+    liApiFetch(`/v2/adCreativesV2?ids=${chunk.join("&ids=")}`).catch(() => null)
+  ));
+
+  const shapes = {};
+  for (const data of pages) {
+    for (const [id, creative] of Object.entries(data?.results || {})) {
+      const vars  = Object.values(creative?.variables?.data || {})[0] || {};
+      const ratio = vars.videoAspectRatio || vars.mediaAspectRatio;
+      const aspect = ratio?.widthAspect > 0 && ratio?.heightAspect > 0
+        ? ratio.widthAspect / ratio.heightAspect
+        : null;
+      // A missing ratio means a format that declares no media box (some ARTICLE
+      // creatives, native documents). Those keep the square fallback.
+      if (aspect) shapes[String(id)] = { aspect, cta: !!vars.callToActionEnabled };
+    }
+  }
+  return shapes;
+}
+
 async function fetchCreativesByIds(creativeIds) {
   const results = await Promise.all(
     creativeIds.map(id =>
@@ -341,6 +376,23 @@ const THUMB_COLORS = ["#dde3ea","#d6dde6","#e2ddd8","#d8e2dd","#e0dae2","#dde0e2
 // which 403 without r_organization_social — that is a token problem, not a layout one.
 const CARD_COPY_H = 260;   // unscaled px — actor header plus about four lines of copy
 
+// The card's own chrome, in the same unscaled px as the iframe's layout width. Measured
+// off a rendered 16:9 video preview: 552-wide media came out 310 tall, the actor header
+// and copy above it 115, the call-to-action bar 49 and the like/comment/repost row 55.
+// CHROME_TOP carries a little slack over that 115 because copy runs one to three lines
+// and some cards add a "N connections follow" strip, neither of which the API reports.
+// Slack shows as a sliver of LinkedIn's canvas under the card; too little clips the ad.
+const PREVIEW_W     = 552;   // iframe layout width — the card fills it
+const CHROME_TOP    = 140;
+const CHROME_CTA    = 49;
+const CHROME_FOOT   = 55;
+const PREVIEW_MAX_H = 520;   // screen px: past this a portrait card scales down instead of growing
+
+function previewCardH(shape) {
+  if (!shape?.aspect) return PREVIEW_W;    // unknown media box — keep the square crop
+  return CHROME_TOP + Math.round(PREVIEW_W / shape.aspect) + (shape.cta ? CHROME_CTA : 0) + CHROME_FOOT;
+}
+
 // Thumbnail size. Every dimension inside CreativeThumb is expressed as a multiple of
 // THUMB_W so the whole tile — iframe scale, corner radius, carousel chip, placeholder
 // glyph — grows evenly from this one number. 374 is the 187px original doubled.
@@ -348,13 +400,18 @@ const THUMB_W        = 374;
 const THUMB_NARROW_W = 187;   // 374 + the row's padding and page gutters overflows a phone
 const THUMB_NARROW_AT = 480;
 
-function CreativeThumb({ name, imageUrl, previewSrc, isCarousel }) {
+function CreativeThumb({ name, imageUrl, previewSrc, isCarousel, shape }) {
   const w = useIsNarrow(THUMB_NARROW_AT) ? THUMB_NARROW_W : THUMB_W;
   const u = px => Math.round(px * w / 187);   // scale a 187-era dimension to the current width
 
   if (previewSrc) {
-    const scale  = w / 552;
-    const frameH = Math.round((isCarousel ? CARD_COPY_H : 552) * scale);
+    const cardH = isCarousel ? CARD_COPY_H : previewCardH(shape);
+    // Fit to width normally. A portrait card is tall enough that filling the width would
+    // make one ad taller than the three below it, so those scale to the height cap and
+    // sit centred instead — the whole card still renders, just smaller.
+    const scale  = Math.min(w / PREVIEW_W, PREVIEW_MAX_H / cardH);
+    const frameH = Math.round(cardH * scale);
+    const frameW = Math.round(PREVIEW_W * scale);
     return (
       <div style={{ width: w, borderRadius: u(8), flexShrink: 0, overflow: "hidden", border: `1px solid ${C.border}`, background: C.surface }}>
         <div style={{ width: w, height: frameH, overflow: "hidden", position: "relative" }}>
@@ -362,7 +419,7 @@ function CreativeThumb({ name, imageUrl, previewSrc, isCarousel }) {
             src={previewSrc}
             title={name}
             scrolling="no"
-            style={{ position: "absolute", left: 0, top: 0, width: 552, height: 552, transform: `scale(${scale})`, transformOrigin: "top left", border: "none", pointerEvents: "none", display: "block" }}
+            style={{ position: "absolute", left: Math.round((w - frameW) / 2), top: 0, width: PREVIEW_W, height: cardH, transform: `scale(${scale})`, transformOrigin: "top left", border: "none", pointerEvents: "none", display: "block" }}
           />
         </div>
         {isCarousel && (
@@ -436,7 +493,7 @@ function AdRow({ ad, isTop, isBottom, campaignName }) {
       background: isTop ? C.greenDim : isBottom ? C.redDim : C.charcoal,
       border: `1px solid ${isTop ? C.green + "44" : isBottom ? C.red + "44" : C.border}`,
     }}>
-      <CreativeThumb name={ad.name} imageUrl={ad.imageUrl} previewSrc={ad.preview?.src} isCarousel={ad.isCarousel} />
+      <CreativeThumb name={ad.name} imageUrl={ad.imageUrl} previewSrc={ad.preview?.src} isCarousel={ad.isCarousel} shape={ad.shape} />
       <div style={{ flex: "1 1 160px", minWidth: 140 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: C.offWhite }}>{ad.name}</span>
@@ -906,9 +963,12 @@ export default function LinkedInAdsDashboard() {
       const camIds = campaignAnalytics.map(el => (el.pivotValues?.[0] || "").split(":").pop()).filter(Boolean);
       const creativeIds = creativeAnalytics.map(el => (el.pivotValues?.[0] || "").split(":").pop()).filter(Boolean);
 
-      const [rawCampaigns, rawCreatives] = await Promise.all([
+      const [rawCampaigns, rawCreatives, creativeShapes] = await Promise.all([
         fetchCampaigns(ACCOUNT.id).catch(() => []),
         fetchCreatives(ACCOUNT.id).catch(() => []),
+        // Three requests for the whole account, and the previews cannot be sized without
+        // them — so this belongs in the blocking load rather than the preview hydration.
+        fetchCreativeShapes(creativeIds).catch(() => ({})),
       ]);
 
       // Per-id GETs are a fallback, not a parallel belt-and-braces. Running them
@@ -993,7 +1053,7 @@ export default function LinkedInAdsDashboard() {
             const name     = meta.name || (meta.referenceUrn && postNames[meta.referenceUrn])
                           || creative?.name || camName || `Ad #${id.slice(-6)}`;
             const isCarousel = meta.isCarousel || (meta.referenceUrn ? carouselUrns.has(meta.referenceUrn) : false);
-            return { id, campaignId: camId, name, imageUrl, isCarousel, createdTime: created, status: creative?.status || null, metrics: toMetrics(el) };
+            return { id, campaignId: camId, name, imageUrl, isCarousel, shape: creativeShapes[id] || null, createdTime: created, status: creative?.status || null, metrics: toMetrics(el) };
           })
         : campaignAnalytics.map(el => {
             const id   = String((el.pivotValues?.[0] || "").split(":").pop() || "");
