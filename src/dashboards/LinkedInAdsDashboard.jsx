@@ -831,7 +831,6 @@ export default function LinkedInAdsDashboard() {
   const selectedRealIds = [...selectedIds].filter(id => id !== "__all__");
 
   const selectAll  = () => setSelectedIds(new Set(["__all__"]));
-  const selectOnly = (id) => setSelectedIds(new Set([String(id)]));
   // Toggling always leaves "all" mode; emptying the selection falls back to it
   // rather than stranding the page with nothing selected.
   const toggleId   = (id) => setSelectedIds(prev => {
@@ -968,7 +967,7 @@ export default function LinkedInAdsDashboard() {
               <span style={{ fontSize: 10, color: C.grey }}>
                 {selectedRealIds.length >= 2
                   ? `${selectedRealIds.length} selected — comparing`
-                  : "tick the boxes to compare campaigns"}
+                  : "click campaigns to compare them"}
               </span>
               {selectedRealIds.length > 0 && (
                 <button onClick={selectAll} style={{
@@ -1013,12 +1012,12 @@ export default function LinkedInAdsDashboard() {
                   const spend = c.metrics?.spend || 0;
                   const convs = c.metrics?.conversions || 0;
                   return (
-                    <div key={c.id} role="button" tabIndex={0}
-                      onClick={() => selectOnly(c.id)}
+                    <div key={c.id} role="checkbox" aria-checked={isSelected} tabIndex={0}
+                      onClick={() => toggleId(c.id)}
                       onKeyDown={e => {
-                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOnly(c.id); }
+                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleId(c.id); }
                       }}
-                      title={`${c.name} — ${fmtUSD(spend)}, ${fmt(convs)} conv.${isActive ? "" : " (paused)"}`}
+                      title={`${isSelected ? "Remove" : "Add"} ${c.name} — ${fmtUSD(spend)}, ${fmt(convs)} conv.${isActive ? "" : " (paused)"}`}
                       style={{
                       padding: "6px 9px", borderRadius: 6, cursor: "pointer",
                       border: `1px solid ${isSelected ? C.blue + "33" : "transparent"}`,
@@ -1026,16 +1025,9 @@ export default function LinkedInAdsDashboard() {
                       background: C.charcoal, transition: "all 0.15s", opacity: isActive ? 1 : 0.5,
                     }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <div
-                          onClick={e => { e.stopPropagation(); toggleId(c.id); }}
-                          role="checkbox" aria-checked={isSelected} tabIndex={0}
-                          aria-label={`Compare ${c.name}`}
-                          onKeyDown={e => {
-                            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); toggleId(c.id); }
-                          }}
-                          title={isSelected ? "Remove from comparison" : "Add to comparison"}
+                        <div aria-hidden="true"
                           style={{
-                            width: 12, height: 12, borderRadius: 3, flexShrink: 0, cursor: "pointer",
+                            width: 12, height: 12, borderRadius: 3, flexShrink: 0,
                             border: `1px solid ${isSelected ? C.blue : C.grey}`,
                             background: isSelected ? C.blue : "transparent",
                             display: "grid", placeItems: "center",
