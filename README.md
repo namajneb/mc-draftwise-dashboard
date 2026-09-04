@@ -28,33 +28,37 @@ proxy falls back to it and reports a clear error when it expires.
 
 ### Getting a refresh token
 
-1. Open the authorization URL in a browser, signed in as a user with access to
-   the Draftwise ad account:
+Run the helper — it does the whole OAuth flow locally (opens the consent page,
+catches the redirect on `127.0.0.1`, exchanges the code) and prints the three
+variables ready to paste:
 
-   ```
-   https://www.linkedin.com/oauth/v2/authorization
-     ?response_type=code
-     &client_id=YOUR_CLIENT_ID
-     &redirect_uri=YOUR_REGISTERED_REDIRECT_URI
-     &scope=r_ads,r_ads_reporting
-   ```
+```sh
+node scripts/mint-linkedin-refresh-token.mjs
+```
 
-2. Approve, then copy the `code` query param off the redirect URL.
-3. Exchange it for tokens (the code is single-use and expires in ~30 seconds):
+One prerequisite, at https://developer.linkedin.com/ → My Apps → your app:
 
-   ```sh
-   curl -X POST https://www.linkedin.com/oauth/v2/accessToken \
-     -d grant_type=authorization_code \
-     -d code=THE_CODE \
-     -d redirect_uri=YOUR_REGISTERED_REDIRECT_URI \
-     -d client_id=YOUR_CLIENT_ID \
-     -d client_secret=YOUR_CLIENT_SECRET
-   ```
+- **Auth tab → Authorized redirect URLs** must contain exactly
+  `http://127.0.0.1:4572/`. LinkedIn requires an exact match and, unlike Google,
+  will not accept an arbitrary loopback port. Without it the consent page fails
+  before you can approve.
+- **Products tab** must include **Advertising API** (that grants `r_ads` and
+  `r_ads_reporting`). Requesting a scope the app lacks fails with
+  `unauthorized_scope_error`.
 
-4. Store the `refresh_token` from the response as `LINKEDIN_REFRESH_TOKEN`.
+The script then lists every ad account the new credential can see and flags
+whether Draftwise (`513153545`) is among them. This matters because a token
+minted from the wrong LinkedIn app, or approved by a member without access to
+that account, authorizes cleanly and *then* renders an empty dashboard.
 
-If the response has no `refresh_token`, the app is not approved for programmatic
-refresh tokens — use the `LINKEDIN_TOKEN` fallback and rotate it manually.
+If the output shows `LINKEDIN_TOKEN=` instead of `LINKEDIN_REFRESH_TOKEN=`,
+LinkedIn issued no refresh token — the app is not enabled for them. Set that
+single value instead and expect to repeat this every 60 days, or ask LinkedIn
+to enable programmatic refresh tokens on the app.
+
+Note that a status of `REMOVED` on an ad account is not the same as absent:
+deleting a LinkedIn ad account only marks it removed, and it keeps appearing in
+listings.
 
 ## Google Ads
 
