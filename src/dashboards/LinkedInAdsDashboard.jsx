@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 
 const C = {
   white:     "#FFFFFF",
@@ -66,6 +66,31 @@ async function fetchCreatives(accountId) {
     `/v2/adCreativesV2?q=account&account=${urn}&count=100&fields=id,name,status,campaign,variables,reference,changeAuditStamps`
   );
   return (data.elements || []).filter(c => c.status !== 'REMOVED' && c.status !== 'DELETED');
+}
+
+// The rendered ad preview is the only view that shows the creative as LinkedIn
+// actually displays it. /rest/adPreviews is part of the Advertising API, so it works
+// on ads scopes alone — unlike /v2/ugcPosts and /v2/shares, which need organic
+// permissions and return 403. LinkedIn's iframe src is valid for only ~3 hours, so
+// these are fetched per session in the browser and never persisted.
+async function fetchAdPreview(creativeId, accountId) {
+  try {
+    const creative = encodeURIComponent(`urn:li:sponsoredCreative:${creativeId}`);
+    const account  = encodeURIComponent(`urn:li:sponsoredAccount:${accountId}`);
+    const data = await liApiFetch(`/rest/adPreviews?q=creative&creative=${creative}&account=${account}`);
+    const els  = data.elements || [];
+    // One element per placement. The desktop render stacks the caption above the
+    // creative; mobile is a wide letterbox. Order is not guaranteed.
+    const el   = els.find(e => e.placement?.linkedin?.contentPresentationType === "DESKTOP_WEBSITE") || els[0];
+    const html = el?.preview;
+    if (!html) return null;
+    // LinkedIn quotes the attributes with single quotes: <iframe src='…' height=580 …>
+    const src = html.replace(/&amp;/g, "&").match(/src=["\']([^"\']+)["\']/)?.[1];
+    return src ? { src } : null;
+  } catch {
+    // Some creative types have no preview and 422 — a missing thumbnail, not an error.
+    return null;
+  }
 }
 
 async function fetchCreativesByIds(creativeIds) {
@@ -340,7 +365,7 @@ function AdRow({ ad, isTop, isBottom, campaignName }) {
       background: isTop ? C.greenDim : isBottom ? C.redDim : C.charcoal,
       border: `1px solid ${isTop ? C.green + "44" : isBottom ? C.red + "44" : C.border}`,
     }}>
-      <CreativeThumb name={ad.name} imageUrl={ad.imageUrl} isCarousel={ad.isCarousel} />
+      <CreativeThumb name={ad.name} imageUrl={ad.imageUrl} previewSrc={ad.preview?.src} isCarousel={ad.isCarousel} />
       <div style={{ flex: "1 1 160px", minWidth: 140 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: C.offWhite }}>{ad.name}</span>
@@ -707,6 +732,38 @@ export default function LinkedInAdsDashboard() {
   const [lastUpdated, setLastUpdated]     = useState(null);
   const [syncing, setSyncing]             = useState(false);
 
+  const previewCache = useRef({});   // adId -> { preview, at }
+  const previewSeq   = useRef(0);
+
+  // Well inside LinkedIn's ~3h expiry, so a src is never handed to an iframe stale.
+  const PREVIEW_TTL_MS = 2.5 * 60 * 60 * 1000;
+  const livePreview = id => {
+    const hit = previewCache.current[id];
+    return hit && Date.now() - hit.at < PREVIEW_TTL_MS ? hit.preview : null;
+  };
+  const attachPreviews = list => list.map(a => ({ ...a, preview: livePreview(a.id) }));
+
+  // Previews arrive after the metrics, one small batch at a time — 160+ creatives
+  // fetched at once would swamp both the proxy and LinkedIn. The sequence guard drops
+  // an in-flight run when the date range changes, so a stale run cannot overwrite the
+  // new one's rows.
+  const hydratePreviews = useCallback(async (adList) => {
+    const seq = ++previewSeq.current;
+    setAds(prev => attachPreviews(prev));   // adopt anything an abandoned run resolved
+    const missing = adList.filter(a => !livePreview(a.id));
+    for (let i = 0; i < missing.length; i += 3) {
+      if (previewSeq.current !== seq) return;
+      await Promise.all(missing.slice(i, i + 3).map(async a => {
+        const preview = await fetchAdPreview(a.id, ACCOUNT.id);
+        if (!preview) return;
+        previewCache.current[a.id] = { preview, at: Date.now() };
+        if (previewSeq.current === seq) {
+          setAds(prev => prev.map(ad => ad.id === a.id ? { ...ad, preview } : ad));
+        }
+      }));
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loadData = useCallback(async (daysN) => {
     setLoading(true); setError(null); setCampaigns([]); setAds([]);
     setSelectedIds(new Set(["__all__"]));
@@ -814,9 +871,10 @@ export default function LinkedInAdsDashboard() {
             return { id, campaignId: id, name: camp?.name || `Campaign #${id.slice(-6)}`, imageUrl: null, createdTime: null, metrics: toMetrics(el) };
           });
 
-      setAds(adsData);
+      setAds(attachPreviews(adsData));
       setSelectedIds(new Set(["__all__"]));
       setLastUpdated(new Date().toISOString());
+      hydratePreviews(adsData);
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
   }, []);
