@@ -328,7 +328,7 @@ function ScoreBadge({ score }) {
   );
 }
 
-function AdRow({ ad, isTop, isBottom }) {
+function AdRow({ ad, isTop, isBottom, campaignName }) {
   const m = ad.metrics;
   const score = scoreAd(m);
   const cpcAccent = m.clicks > 0 ? scoreColor(Math.max(1 - (m.spend / m.clicks) / 30, 0) * 100) : C.lightGrey;
@@ -347,8 +347,12 @@ function AdRow({ ad, isTop, isBottom }) {
           {isTop    && <span style={{ fontSize: 10, fontWeight: 600, color: C.green, background: C.greenDim, padding: "2px 8px", borderRadius: 20, border: `1px solid ${C.green}33` }}>▲ Top 20%</span>}
           {isBottom && <span style={{ fontSize: 10, fontWeight: 600, color: C.red,   background: C.redDim,   padding: "2px 8px", borderRadius: 20, border: `1px solid ${C.red}33`   }}>▼ Bottom 20%</span>}
         </div>
-        <div style={{ fontSize: 11, color: C.lightGrey, fontFamily: "'Inter', sans-serif" }}>
+        <div style={{ fontSize: 11, color: C.lightGrey, fontFamily: "'Inter', sans-serif", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <span style={{ color: C.green }}>● Active</span>
+          {campaignName && (
+            <span style={{ color: C.grey, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 220 }}
+                  title={campaignName}>in {campaignName}</span>
+          )}
         </div>
       </div>
       <div style={{ display: "flex", flex: "1 1 480px", alignItems: "flex-start" }}>
@@ -570,10 +574,123 @@ function InsightsPanel({ ads, prevMap }) {
   );
 }
 
+// Cross-campaign comparison. `dir` is which way is *better*: 1 higher, -1 lower,
+// 0 means the metric is volume rather than performance, so a winner is meaningless —
+// a campaign spending more is not thereby worse, and colouring it red would imply it is.
+const CMP_COLS = [
+  { key: "spend",       label: "Spend",        dir:  0, render: r => fmtUSD(r.spend) },
+  { key: "impressions", label: "Impr.",        dir:  0, render: r => fmt(r.impressions) },
+  { key: "clicks",      label: "Clicks",       dir:  0, render: r => fmt(r.clicks) },
+  { key: "ctr",         label: "CTR",          dir:  1, render: r => fmtCTR(r.ctr) },
+  { key: "cpc",         label: "CPC",          dir: -1, render: r => fmtCPC(r.cpc) },
+  { key: "conversions", label: "Conv.",        dir:  1, render: r => fmt(r.conversions) },
+  { key: "cpcConv",     label: "Cost / Conv.", dir: -1, render: r => r.cpcConv > 0 ? fmtUSD(r.cpcConv) : "—" },
+];
+
+// Ratios are recomputed from summed volumes, never averaged across campaigns —
+// averaging CTRs would weight a 100-impression campaign like a 100k one.
+function cmpRow(id, name, status, m, prev) {
+  const spend = m?.spend || 0, clicks = m?.clicks || 0;
+  const impressions = m?.impressions || 0, conversions = m?.conversions || 0;
+  return {
+    id, name, status, spend, clicks, impressions, conversions,
+    ctr:     impressions > 0 ? clicks / impressions : 0,
+    cpc:     clicks      > 0 ? spend / clicks       : 0,
+    cpcConv: conversions > 0 ? spend / conversions  : 0,
+    prev: prev || null,
+  };
+}
+
+// Zero means "no data" for a ratio (no clicks, no conversions), so it must not win
+// a lowest-is-better column — otherwise an unused campaign shows as the best CPC.
+function bestWorst(rows, key, dir) {
+  if (!dir || rows.length < 2) return {};
+  const vals = rows.map(r => r[key]).filter(v => v > 0);
+  if (vals.length < 2) return {};
+  const hi = Math.max(...vals), lo = Math.min(...vals);
+  if (hi === lo) return {};
+  return dir > 0 ? { best: hi, worst: lo } : { best: lo, worst: hi };
+}
+
+function CampaignCompare({ rows }) {
+  if (rows.length < 2) return null;
+
+  const marks = {};
+  CMP_COLS.forEach(col => { marks[col.key] = bestWorst(rows, col.key, col.dir); });
+
+  const tot = rows.reduce((a, r) => ({
+    spend: a.spend + r.spend, clicks: a.clicks + r.clicks,
+    impressions: a.impressions + r.impressions, conversions: a.conversions + r.conversions,
+  }), { spend: 0, clicks: 0, impressions: 0, conversions: 0 });
+  const totalRow = cmpRow("__tot__", `All ${rows.length} selected`, null, tot, null);
+
+  const th = { fontSize: 10, fontWeight: 600, color: C.grey, textTransform: "uppercase",
+               letterSpacing: "0.07em", padding: "0 14px 10px", textAlign: "right", whiteSpace: "nowrap" };
+  const td = { fontSize: 13, fontWeight: 600, padding: "13px 14px", textAlign: "right", whiteSpace: "nowrap" };
+
+  const cellColor = (col, r) => {
+    const mk = marks[col.key];
+    if (!mk.best || !(r[col.key] > 0)) return C.offWhite;
+    if (r[col.key] === mk.best)  return C.green;
+    if (r[col.key] === mk.worst) return C.red;
+    return C.offWhite;
+  };
+
+  return (
+    <div style={{ background: C.charcoal, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 24 }}>
+      <div style={{ padding: "16px 20px 0", display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: C.offWhite }}>Campaign Comparison</span>
+        <span style={{ fontSize: 11, color: C.grey }}>
+          {rows.length} campaigns · best in <span style={{ color: C.green }}>green</span>, worst in <span style={{ color: C.red }}>red</span>
+        </span>
+      </div>
+      <div style={{ overflowX: "auto", padding: "14px 6px 6px" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: "left", paddingLeft: 14 }}>Campaign</th>
+              {CMP_COLS.map(col => <th key={col.key} style={th}>{col.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} style={{ borderTop: `1px solid ${C.divider}` }}>
+                <td style={{ ...td, textAlign: "left", fontWeight: 500, color: C.offWhite, maxWidth: 260,
+                             overflow: "hidden", textOverflow: "ellipsis" }} title={r.name}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", marginRight: 8,
+                                 background: r.status === "ACTIVE" ? C.green : C.grey }} />
+                  {r.name}
+                </td>
+                {CMP_COLS.map(col => {
+                  const prevVal = r.prev ? cmpRow(r.id, r.name, r.status, r.prev, null)[col.key] : 0;
+                  return (
+                    <td key={col.key} style={{ ...td, color: cellColor(col, r) }}>
+                      {col.render(r)}
+                      {col.dir !== 0 && prevVal > 0 && (
+                        <Ticker curr={r[col.key]} prev={prevVal} invert={col.dir < 0} />
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            <tr style={{ borderTop: `2px solid ${C.border}` }}>
+              <td style={{ ...td, textAlign: "left", color: C.lightGrey, fontWeight: 700 }}>{totalRow.name}</td>
+              {CMP_COLS.map(col => (
+                <td key={col.key} style={{ ...td, color: C.lightGrey }}>{col.render(totalRow)}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 export default function LinkedInAdsDashboard() {
   const [campaigns, setCampaigns]         = useState([]);
   const [ads, setAds]                     = useState([]);
-  const [activeCamId, setActiveCamId]     = useState(null);
+  const [selectedIds, setSelectedIds]     = useState(() => new Set(["__all__"]));
   const [prevMap, setPrevMap]             = useState({});
   const [prevCampaignMap, setPrevCampaignMap] = useState({});
   const [days, setDays]                   = useState(30);
@@ -586,7 +703,8 @@ export default function LinkedInAdsDashboard() {
   const [syncing, setSyncing]             = useState(false);
 
   const loadData = useCallback(async (daysN) => {
-    setLoading(true); setError(null); setCampaigns([]); setAds([]); setActiveCamId(null);
+    setLoading(true); setError(null); setCampaigns([]); setAds([]);
+    setSelectedIds(new Set(["__all__"]));
     try {
       const { current, prev } = getLiDateRange(daysN);
 
@@ -687,9 +805,7 @@ export default function LinkedInAdsDashboard() {
           });
 
       setAds(adsData);
-      const adCamIds = new Set(adsData.map(a => a.campaignId));
-      const firstCam = campaigns.find(c => adCamIds.has(String(c.id))) || campaigns[0];
-      setActiveCamId("__all__");
+      setSelectedIds(new Set(["__all__"]));
       setLastUpdated(new Date().toISOString());
     } catch (e) { setError(e.message); }
     finally { setLoading(false); }
@@ -706,7 +822,48 @@ export default function LinkedInAdsDashboard() {
     finally { setSyncing(false); }
   };
 
-  const campaignAds = (activeCamId === "__all__" ? ads : ads.filter(a => a.campaignId === String(activeCamId)))
+  const isAll           = selectedIds.has("__all__");
+  const selectedRealIds = [...selectedIds].filter(id => id !== "__all__");
+
+  const selectAll  = () => setSelectedIds(new Set(["__all__"]));
+  const selectOnly = (id) => setSelectedIds(new Set([String(id)]));
+  // Toggling always leaves "all" mode; emptying the selection falls back to it
+  // rather than stranding the page with nothing selected.
+  const toggleId   = (id) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    next.delete("__all__");
+    const key = String(id);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next.size ? next : new Set(["__all__"]);
+  });
+
+  const camById   = {};
+  campaigns.forEach(c => { camById[String(c.id)] = c; });
+
+  const compareRows = selectedRealIds
+    .map(id => camById[id])
+    .filter(Boolean)
+    .map(c => cmpRow(String(c.id), c.name, c.status, c.metrics, prevCampaignMap?.[String(c.id)]))
+    .sort((a, b) => b.spend - a.spend);
+  const isCompare = !isAll && compareRows.length >= 2;
+
+  // Summing the selected campaigns' previous-period metrics keeps the summary bar's
+  // deltas aligned with whatever subset is on screen.
+  const selectedPrev = (() => {
+    if (isAll || !selectedRealIds.length) return undefined;
+    let any = false;
+    const acc = { spend: 0, clicks: 0, impressions: 0, conversions: 0 };
+    selectedRealIds.forEach(id => {
+      const pm = prevCampaignMap?.[id];
+      if (!pm) return;
+      any = true;
+      acc.spend += pm.spend || 0; acc.clicks += pm.clicks || 0;
+      acc.impressions += pm.impressions || 0; acc.conversions += pm.conversions || 0;
+    });
+    return any ? acc : undefined;
+  })();
+
+  const campaignAds = (isAll ? ads : ads.filter(a => selectedIds.has(String(a.campaignId))))
     .filter(a => !showActive || a.status === "ACTIVE" || a.status === null);
   const scored = [...campaignAds].sort((a, b) => scoreAd(b.metrics) - scoreAd(a.metrics));
   const cut    = scored.length > 1 ? Math.max(1, Math.ceil(scored.length * 0.2)) : 0;
@@ -801,17 +958,28 @@ export default function LinkedInAdsDashboard() {
       {campaigns.length > 0 && (
         <div style={{ background: C.black, borderBottom: `1px solid ${C.border}` }}>
           <div style={{ maxWidth: 1300, margin: "0 auto", padding: "14px 32px" }}>
-            <div style={{ marginBottom: 12 }}>
+            <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
               <span style={{ fontSize: 10, fontWeight: 600, color: C.grey, textTransform: "uppercase", letterSpacing: "0.1em" }}>Campaigns</span>
+              <span style={{ fontSize: 10, color: C.grey }}>
+                {selectedRealIds.length >= 2
+                  ? `${selectedRealIds.length} selected — comparing`
+                  : "tick the boxes to compare campaigns"}
+              </span>
+              {selectedRealIds.length > 0 && (
+                <button onClick={selectAll} style={{
+                  padding: "2px 8px", borderRadius: 4, border: `1px solid ${C.border}`,
+                  background: "transparent", color: C.grey, fontSize: 10, cursor: "pointer",
+                }}>Clear</button>
+              )}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
               {(() => {
-                const isSelected = activeCamId === "__all__";
+                const isSelected = isAll;
                 const realCampaigns = campaigns.filter(c => c.id !== "__all__");
                 const allSpend = realCampaigns.reduce((s, c) => s + (c.metrics?.spend || 0), 0);
                 const allConvs = realCampaigns.reduce((s, c) => s + (c.metrics?.conversions || 0), 0);
                 return (
-                  <button onClick={() => setActiveCamId("__all__")} style={{
+                  <button onClick={selectAll} style={{
                     padding: "10px 12px", borderRadius: 8, textAlign: "left", cursor: "pointer",
                     border: `1px solid ${isSelected ? C.blue + "44" : "transparent"}`,
                     borderBottom: `2px solid ${isSelected ? C.blue : "transparent"}`,
@@ -827,18 +995,39 @@ export default function LinkedInAdsDashboard() {
               {campaigns
                 .filter(c => c.id !== "__all__" && (!showActive || c.status === "ACTIVE"))
                 .map(c => {
-                  const isSelected = activeCamId === c.id;
+                  const isSelected = selectedIds.has(String(c.id));
                   const isActive   = c.status === "ACTIVE";
                   const spend = c.metrics?.spend || 0;
                   const convs = c.metrics?.conversions || 0;
                   return (
-                    <button key={c.id} onClick={() => setActiveCamId(c.id)} style={{
+                    <div key={c.id} role="button" tabIndex={0}
+                      onClick={() => selectOnly(c.id)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectOnly(c.id); }
+                      }}
+                      style={{
                       padding: "10px 12px", borderRadius: 8, textAlign: "left", cursor: "pointer",
-                      border: "1px solid transparent",
+                      border: `1px solid ${isSelected ? C.blue + "33" : "transparent"}`,
                       borderBottom: `2px solid ${isSelected ? C.blue : "transparent"}`,
                       background: C.charcoal, transition: "all 0.15s", opacity: isActive ? 1 : 0.5,
                     }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 5 }}>
+                        <div
+                          onClick={e => { e.stopPropagation(); toggleId(c.id); }}
+                          role="checkbox" aria-checked={isSelected} tabIndex={0}
+                          aria-label={`Compare ${c.name}`}
+                          onKeyDown={e => {
+                            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); toggleId(c.id); }
+                          }}
+                          title={isSelected ? "Remove from comparison" : "Add to comparison"}
+                          style={{
+                            width: 13, height: 13, borderRadius: 3, flexShrink: 0, cursor: "pointer",
+                            border: `1px solid ${isSelected ? C.blue : C.grey}`,
+                            background: isSelected ? C.blue : "transparent",
+                            display: "grid", placeItems: "center",
+                          }}>
+                          {isSelected && <span style={{ fontSize: 9, lineHeight: 1, fontWeight: 800, color: C.black }}>✓</span>}
+                        </div>
                         <div style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? C.green : C.grey, flexShrink: 0 }} />
                         <span style={{ fontSize: 12, fontWeight: 500, color: isSelected ? C.white : C.lightGrey, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{c.name}</span>
                       </div>
@@ -848,7 +1037,7 @@ export default function LinkedInAdsDashboard() {
                       {!isActive && (
                         <div style={{ fontSize: 9, color: C.grey, marginTop: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>Paused</div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
             </div>
@@ -877,15 +1066,17 @@ export default function LinkedInAdsDashboard() {
 
         {!loading && (
           <>
-            {activeCamId && campaignAds.length > 0 && (
+            {campaignAds.length > 0 && (
               <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>
                 {ACCOUNT.name} Ad Account · {isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`} · {campaignAds.length} ads
+                {isCompare && ` across ${compareRows.length} campaigns`}
               </div>
             )}
 
             {campaignAds.length > 0 && (
               <>
-                <SummaryBar ads={campaignAds} prevMap={prevMap} prevCampaignMetrics={prevCampaignMap?.[String(activeCamId)]} />
+                <SummaryBar ads={campaignAds} prevMap={prevMap} prevCampaignMetrics={selectedPrev} />
+                {isCompare && <CampaignCompare rows={compareRows} />}
                 <InsightsPanel ads={campaignAds} prevMap={prevMap} />
 
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
@@ -906,14 +1097,15 @@ export default function LinkedInAdsDashboard() {
                 </div>
 
                 {sortedAds.map(a => (
-                  <AdRow key={a.id} ad={a} isTop={topIds.has(a.id)} isBottom={botIds.has(a.id)} />
+                  <AdRow key={a.id} ad={a} isTop={topIds.has(a.id)} isBottom={botIds.has(a.id)}
+                         campaignName={(isCompare || isAll) ? camById[String(a.campaignId)]?.name : undefined} />
                 ))}
               </>
             )}
 
-            {campaignAds.length === 0 && !error && activeCamId && (
+            {campaignAds.length === 0 && !error && campaigns.length > 0 && (
               <div style={{ textAlign: "center", padding: "60px 0", color: C.lightGrey, fontSize: 13 }}>
-                No ad data found for this campaign in the selected date range.
+                No ad data found for {selectedRealIds.length > 1 ? "these campaigns" : "this campaign"} in the selected date range.
               </div>
             )}
           </>
