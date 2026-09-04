@@ -18,8 +18,11 @@ export default function Nav() {
     <div style={{
       position: 'sticky', top: 0, zIndex: 1000,
       height: 44, background: '#000', borderBottom: '1px solid #1a1a1a',
-      display: 'flex', alignItems: 'center', padding: '0 24px', gap: 20,
     }}>
+      <div style={{
+        maxWidth: 1300, margin: '0 auto', padding: '0 32px',
+        height: '100%', display: 'flex', alignItems: 'center', gap: 20,
+      }}>
       <Link to="/" style={{ textDecoration: 'none', flexShrink: 0 }}>
         <span style={{ color: '#f0f2f5', fontSize: 11, fontWeight: 600, fontFamily: "'Inter', sans-serif", letterSpacing: '2px' }}>
           DRAFTWISE DASHBOARD
@@ -67,7 +70,8 @@ export default function Nav() {
             onMouseLeave={e => e.target.style.color = '#444'}
           >Sign out</button>
         </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }

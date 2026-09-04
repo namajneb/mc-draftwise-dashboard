@@ -1051,7 +1051,8 @@ export default function GoogleAdsDashboard() {
       `}</style>
 
       {/* ── Title + Day Range + Active Toggle ── */}
-      <div style={{ background: C.black, padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48, borderBottom: "1px solid #1a1a1a" }}>
+      <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
+        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48 }}>
         <span style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>Google Ads Performance</span>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
@@ -1091,10 +1092,12 @@ export default function GoogleAdsDashboard() {
           </div>
         </div>
       </div>
+      </div>
 
       {/* ── Account Tabs — hidden when only one account ── */}
       {accounts.length > 1 && (
-        <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a", padding: "0 32px", display: "flex", gap: 2, overflowX: "auto" }}>
+        <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
+          <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", gap: 2, overflowX: "auto" }}>
           {accounts.map((acc, i) => (
             <button key={acc.id} onClick={() => handleAccSwitch(i)} style={{
               padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer", whiteSpace: "nowrap",
@@ -1104,6 +1107,7 @@ export default function GoogleAdsDashboard() {
               margin: "6px 2px",
             }}>{acc.name}</button>
           ))}
+        </div>
         </div>
       )}
 

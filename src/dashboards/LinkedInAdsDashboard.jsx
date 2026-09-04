@@ -1025,7 +1025,8 @@ export default function LinkedInAdsDashboard() {
       `}</style>
 
       {/* Controls Bar */}
-      <div style={{ background: C.black, padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48, borderBottom: "1px solid #1a1a1a" }}>
+      <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
+        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48 }}>
         <span style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>LinkedIn Ads Performance</span>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
@@ -1063,6 +1064,7 @@ export default function LinkedInAdsDashboard() {
           onMouseLeave={e => e.currentTarget.style.color = C.grey}
           >{syncing ? "Syncing…" : "↻ Refresh"}</button>
         </div>
+      </div>
       </div>
 
       {/* Campaign Grid */}

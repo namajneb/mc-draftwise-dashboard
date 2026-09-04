@@ -271,7 +271,8 @@ export default function OverviewDashboard() {
         button { font-family: 'Inter', sans-serif; }
       `}</style>
 
-      <div style={{ background: C.black, padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48, borderBottom: "1px solid #1a1a1a" }}>
+      <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
+        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48 }}>
         <span style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>Performance Overview</span>
         <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
           {[7, 14, 30, 60, 90].map(d => (
@@ -292,6 +293,7 @@ export default function OverviewDashboard() {
             }}>{m.label}</button>
           ))}
         </div>
+      </div>
       </div>
 
       <div style={{ maxWidth: 1300, margin: "0 auto", padding: "32px 32px" }}>
