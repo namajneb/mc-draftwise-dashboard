@@ -205,6 +205,242 @@ async function fetchPMaxAssetGroups(customerId, since, until) {
 // ── Scoring ────────────────────────────────────────────────────────────────────
 // Google Ads (Search + Display): CTR 30pts (caps 5%) · Conversions 35pts (caps 20)
 //   · CPC efficiency 25pts (lower=better, $25+=0) · Clicks 10pts (caps 300)
+// A campaign's own figures. Shopping campaigns hold no ads — their numbers live on the
+// product rows — so which list to sum depends on the channel type.
+function camMetrics(c, ads, shoppingProducts) {
+  if (c.channelType === "SHOPPING") {
+    const rows = shoppingProducts.filter(p => p.campaignId === c.id);
+    return {
+      spend:       rows.reduce((s, p) => s + (p.spend           || 0), 0),
+      clicks:      rows.reduce((s, p) => s + (p.clicks          || 0), 0),
+      impressions: rows.reduce((s, p) => s + (p.impressions     || 0), 0),
+      conversions: rows.reduce((s, p) => s + (p.conversions     || 0), 0),
+      revenue:     rows.reduce((s, p) => s + (p.conversionValue || 0), 0),
+    };
+  }
+  const list = ads.filter(a => a.campaignId === c.id);
+  return {
+    spend:       list.reduce((s, a) => s + (a.metrics?.spend       || 0), 0),
+    clicks:      list.reduce((s, a) => s + (a.metrics?.clicks      || 0), 0),
+    impressions: list.reduce((s, a) => s + (a.metrics?.impressions || 0), 0),
+    conversions: list.reduce((s, a) => s + (a.metrics?.conversions || 0), 0),
+    revenue:     0,   // only Shopping reports revenue
+  };
+}
+
+// The same campaign over the immediately preceding period, for the trend arrows.
+function camPrevMetrics(c, ads, prevMap, prevShoppingProducts) {
+  if (c.channelType === "SHOPPING") {
+    const rows = prevShoppingProducts.filter(p => p.campaignId === c.id);
+    return {
+      spend:       rows.reduce((s, p) => s + (p.spend           || 0), 0),
+      clicks:      rows.reduce((s, p) => s + (p.clicks          || 0), 0),
+      impressions: rows.reduce((s, p) => s + (p.impressions     || 0), 0),
+      conversions: rows.reduce((s, p) => s + (p.conversions     || 0), 0),
+      revenue:     rows.reduce((s, p) => s + (p.conversionValue || 0), 0),
+    };
+  }
+  return ads.filter(a => a.campaignId === c.id).reduce((acc, a) => {
+    const m = prevMap[a.id] || {};
+    acc.spend += m.spend || 0; acc.clicks += m.clicks || 0;
+    acc.impressions += m.impressions || 0; acc.conversions += m.conversions || 0;
+    return acc;
+  }, { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0 });
+}
+
+const CMP_COLS = [
+  { key: "spend",       label: "Spend",        dir:  0, render: r => fmtUSD(r.spend) },
+  { key: "impressions", label: "Impr.",        dir:  0, render: r => fmt(r.impressions) },
+  { key: "clicks",      label: "Clicks",       dir:  0, render: r => fmt(r.clicks) },
+  { key: "ctr",         label: "CTR",          dir:  1, render: r => fmtCTR(r.ctr) },
+  // zeroMissing: a 0 here is an undefined ratio (no clicks, no conversions, or a channel
+  // that reports no revenue at all), not a result — so it sits out rather than winning a
+  // lowest-is-better column. Conversions and CTR are the opposite: zero is a real, bad outcome.
+  { key: "cpc",         label: "CPC",          dir: -1, zeroMissing: true, render: r => r.cpc > 0 ? fmtUSD(r.cpc) : "—" },
+  { key: "conversions", label: "Conv.",        dir:  1, render: r => fmt(r.conversions) },
+  { key: "cpcConv",     label: "Cost / Conv.", dir: -1, zeroMissing: true, render: r => r.cpcConv > 0 ? fmtUSD(r.cpcConv) : "—" },
+  // Shopping is the only channel that reports revenue, so these read "—" elsewhere.
+  { key: "revenue",     label: "Revenue",      dir:  1, zeroMissing: true, render: r => r.revenue > 0 ? fmtUSD(r.revenue) : "—" },
+  { key: "roas",        label: "ROAS",         dir:  1, zeroMissing: true, render: r => r.roas > 0 ? r.roas.toFixed(2) + "x" : "—" },
+];
+
+// Ratios are recomputed from summed volumes, never averaged across campaigns —
+// averaging CTRs would weight a 100-impression campaign like a 100k one.
+function cmpRow(id, name, status, m, prev) {
+  const spend = m?.spend || 0, clicks = m?.clicks || 0;
+  const impressions = m?.impressions || 0, conversions = m?.conversions || 0;
+  const revenue = m?.revenue || 0;
+  return {
+    id, name, status, spend, clicks, impressions, conversions, revenue,
+    ctr:     impressions > 0 ? clicks / impressions : 0,
+    cpc:     clicks      > 0 ? spend / clicks       : 0,
+    cpcConv: conversions > 0 ? spend / conversions  : 0,
+    roas:    spend       > 0 ? revenue / spend      : 0,
+    prev: prev || null,
+  };
+}
+
+// Only ratio columns treat 0 as missing (see zeroMissing above); for conversions a
+// zero is a real outcome and has to be eligible to be the worst.
+function bestWorst(rows, key, dir, zeroMissing) {
+  if (!dir || rows.length < 2) return {};
+  const vals = rows.map(r => r[key]).filter(v => Number.isFinite(v) && (zeroMissing ? v > 0 : true));
+  if (vals.length < 2) return {};
+  const hi = Math.max(...vals), lo = Math.min(...vals);
+  if (hi === lo) return {};
+  return dir > 0 ? { best: hi, worst: lo } : { best: lo, worst: hi };
+}
+
+// Two columns wider than the LinkedIn comparison, whose table measured 1222px in
+// Chrome — so this one needs roughly 1500px, and ~1580 once the page gutters and the
+// card's own padding are counted. Rounded up: stacking a little early only costs some
+// width, while stacking too late puts a drag bar over half the figures.
+const COMPARE_STACK_AT = 1620;
+
+function CampaignCompare({ rows }) {
+  const stacked = useIsNarrow(COMPARE_STACK_AT);   // before the early return: hooks are unconditional
+  if (rows.length < 2) return null;
+
+  const marks = {};
+  CMP_COLS.forEach(col => { marks[col.key] = bestWorst(rows, col.key, col.dir, col.zeroMissing); });
+
+  const tot = rows.reduce((a, r) => ({
+    spend: a.spend + r.spend, clicks: a.clicks + r.clicks,
+    impressions: a.impressions + r.impressions, conversions: a.conversions + r.conversions,
+    revenue: a.revenue + r.revenue,
+  }), { spend: 0, clicks: 0, impressions: 0, conversions: 0, revenue: 0 });
+  const totalRow = cmpRow("__tot__", `All ${rows.length} selected`, null, tot, null);
+
+  const th = { fontSize: 10, fontWeight: 600, color: C.grey, textTransform: "uppercase",
+               letterSpacing: "0.07em", padding: "0 14px 10px", textAlign: "right", whiteSpace: "nowrap" };
+  const td = { fontSize: 13, fontWeight: 600, padding: "13px 14px", textAlign: "right", whiteSpace: "nowrap" };
+
+  // Previous-period value for the same metric, recomputed through cmpRow so the
+  // ratio columns are derived the same way in both layouts.
+  const prevOf = (r, key) => (r.prev ? cmpRow(r.id, r.name, r.status, r.prev, null)[key] : 0);
+
+  const cellColor = (col, r) => {
+    const mk = marks[col.key];
+    if (mk.best === undefined) return C.offWhite;
+    // A cell rendered as "—" carries no value, so it is never marked either way.
+    if (col.zeroMissing && !(r[col.key] > 0)) return C.offWhite;
+    if (r[col.key] === mk.best)  return C.green;
+    if (r[col.key] === mk.worst) return C.red;
+    return C.offWhite;
+  };
+
+  return (
+    <div style={{ background: C.charcoal, border: `1px solid ${C.border}`, borderRadius: 10, marginBottom: 24 }}>
+      <div style={{ padding: "16px 20px 0", display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: C.offWhite }}>Campaign Comparison</span>
+        <span style={{ fontSize: 11, color: C.grey }}>
+          {rows.length} campaigns · best in <span style={{ color: C.green }}>green</span>, worst in <span style={{ color: C.red }}>red</span>
+        </span>
+      </div>
+      {stacked ? (
+        <div style={{ display: "grid", gap: 8, padding: "14px 14px 16px" }}>
+          {[...rows, totalRow].map((r, i) => {
+            const isTotal = i === rows.length;
+            return (
+              <div key={r.id} style={{
+                background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+                padding: "10px 12px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 9 }}>
+                  {!isTotal && (
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+                                   background: r.status === "ENABLED" ? C.green : C.grey }} />
+                  )}
+                  <span style={{ fontSize: 12, fontWeight: 700, color: isTotal ? C.lightGrey : C.offWhite }}>
+                    {r.name}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))", gap: "9px 10px" }}>
+                  {CMP_COLS.map(col => (
+                    <div key={col.key}>
+                      <div style={{ fontSize: 9, color: C.grey, textTransform: "uppercase",
+                                    letterSpacing: "0.07em", marginBottom: 3 }}>{col.label}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600,
+                                    color: isTotal ? C.lightGrey : cellColor(col, r) }}>
+                        {col.render(r)}
+                        {!isTotal && col.dir !== 0 && prevOf(r, col.key) > 0 && (
+                          <Ticker curr={r[col.key]} prev={prevOf(r, col.key)} invert={col.dir < 0} />
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+      // overflowX stays as a floor, not a scroll affordance: the stacked layout takes
+      // over below COMPARE_STACK_AT, so this only guards odd widths rather than
+      // overflowing the page.
+      <div style={{ overflowX: "auto", padding: "14px 6px 6px" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 900 }}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: "left", paddingLeft: 14 }}>Campaign</th>
+              {CMP_COLS.map(col => <th key={col.key} style={th}>{col.label}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(r => (
+              <tr key={r.id} style={{ borderTop: `1px solid ${C.divider}` }}>
+                <td style={{ ...td, textAlign: "left", fontWeight: 500, color: C.offWhite, maxWidth: 260,
+                             overflow: "hidden", textOverflow: "ellipsis" }} title={r.name}>
+                  <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", marginRight: 8,
+                                 background: r.status === "ENABLED" ? C.green : C.grey }} />
+                  {r.name}
+                </td>
+                {CMP_COLS.map(col => {
+                  const prevVal = prevOf(r, col.key);
+                  return (
+                    <td key={col.key} style={{ ...td, color: cellColor(col, r) }}>
+                      {col.render(r)}
+                      {col.dir !== 0 && prevVal > 0 && (
+                        <Ticker curr={r[col.key]} prev={prevVal} invert={col.dir < 0} />
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+            <tr style={{ borderTop: `2px solid ${C.border}` }}>
+              <td style={{ ...td, textAlign: "left", color: C.lightGrey, fontWeight: 700 }}>{totalRow.name}</td>
+              {CMP_COLS.map(col => (
+                <td key={col.key} style={{ ...td, color: C.lightGrey }}>{col.render(totalRow)}</td>
+              ))}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      )}
+    </div>
+  );
+}
+
+// Campaign cards read best-performing first. Only Shopping campaigns report revenue, so
+// efficiency across the whole list is cost per conversion — which only means anything once
+// a campaign has both spent and converted. Campaigns fall into three bands — converting,
+// spending with nothing back, and not yet spending — and sort on the right measure inside
+// each rather than being ranked against each other on a number one of them cannot have.
+// Inside the middle band the biggest spender is the worst of the three, so it sinks furthest.
+function byCostPerConversion(a, b) {
+  const rank = (c) => {
+    const spend = c.metrics?.spend || 0;
+    const convs = c.metrics?.conversions || 0;
+    if (spend > 0 && convs > 0) return [0, spend / convs];
+    if (spend > 0)              return [1, spend];
+    return [2, 0];
+  };
+  const [bandA, valA] = rank(a);
+  const [bandB, valB] = rank(b);
+  return bandA - bandB || valA - valB;
+}
+
 function scoreAd(m) {
   const ctrPct   = (m.ctr || 0) * 100;
   const ctrScore  = Math.min(ctrPct / 5, 1) * 30;
@@ -844,7 +1080,7 @@ export default function GoogleAdsDashboard() {
   const [shoppingProducts, setShoppingProducts]         = useState([]);
   const [prevShoppingProducts, setPrevShoppingProducts] = useState([]);
   const [prevMap, setPrevMap]                           = useState({});
-  const [activeCamId, setActiveCamId]                   = useState(null);
+  const [selectedIds, setSelectedIds]                   = useState(() => new Set(["__all__"]));
   const [days, setDays]               = useState(30);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState(null);
@@ -859,7 +1095,7 @@ export default function GoogleAdsDashboard() {
   // Load ad data for selected account + date range
   const loadData = useCallback(async (acct, daysN) => {
     if (!acct) return;
-    setLoading(true); setError(null); setCampaigns([]); setAds([]); setKeywords([]); setShoppingProducts([]); setPrevShoppingProducts([]); setActiveCamId(null);
+    setLoading(true); setError(null); setCampaigns([]); setAds([]); setKeywords([]); setShoppingProducts([]); setPrevShoppingProducts([]); setSelectedIds(new Set(["__all__"]));
     try {
       const { current, prev } = getDateRange(daysN);
       const [camRes, adsRes, prevAdsRes, kwRes, shopRes, prevShopRes, pmaxRes, prevPmaxRes] = await Promise.all([
@@ -881,7 +1117,7 @@ export default function GoogleAdsDashboard() {
       }));
       console.log("[campaigns]", rawCampaigns.map(c => `${c.name} → ${c.channelType}`));
       setCampaigns(rawCampaigns);
-      setActiveCamId("__all__");
+      setSelectedIds(new Set(["__all__"]));
 
       // Build previous-period lookup by ad ID
       const pMap = {};
@@ -1048,12 +1284,39 @@ export default function GoogleAdsDashboard() {
   const handleAccSwitch = (i) => { setAccountIdx(i); loadData(accounts[i], days); };
   const handleDaySwitch = (d) => { setDays(d); if (account) loadData(account, d); };
 
-  const activeCampaign     = campaigns.find(c => c.id === activeCamId);
-  const isShoppingCampaign = activeCampaign?.channelType === "SHOPPING";
-  const campaignShoppingProducts     = activeCamId === "__all__" ? shoppingProducts : shoppingProducts.filter(p => p.campaignId === activeCamId);
-  const campaignPrevShoppingProducts = activeCamId === "__all__" ? prevShoppingProducts : prevShoppingProducts.filter(p => p.campaignId === activeCamId);
+  const isAll           = selectedIds.has("__all__");
+  const selectedRealIds = [...selectedIds].filter(id => id !== "__all__");
 
-  const campaignAds = activeCamId === "__all__" ? ads : ads.filter(a => a.campaignId === activeCamId);
+  const selectAll = () => setSelectedIds(new Set(["__all__"]));
+  // Toggling always leaves "all" mode; emptying the selection falls back to it
+  // rather than stranding the page with nothing selected.
+  const toggleId  = (id) => setSelectedIds(prev => {
+    const next = new Set(prev);
+    next.delete("__all__");
+    const key = String(id);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next.size ? next : new Set(["__all__"]);
+  });
+
+  const camById = {};
+  campaigns.forEach(c => { camById[String(c.id)] = c; });
+  const selectedCampaigns = selectedRealIds.map(id => camById[id]).filter(Boolean);
+
+  const compareRows = selectedCampaigns
+    .map(c => cmpRow(String(c.id), c.name, c.status,
+                     camMetrics(c, ads, shoppingProducts),
+                     camPrevMetrics(c, ads, prevMap, prevShoppingProducts)))
+    .sort((a, b) => b.spend - a.spend);
+  const isCompare = !isAll && compareRows.length >= 2;
+  // Shopping campaigns have products where the others have ads, so the product view only
+  // makes sense when every selected campaign is Shopping. A mixed selection falls through
+  // to the ads view — the comparison table above it still covers the Shopping campaigns.
+  const isShoppingCampaign = !isAll && selectedCampaigns.length > 0
+    && selectedCampaigns.every(c => c.channelType === "SHOPPING");
+  const campaignShoppingProducts     = isAll ? shoppingProducts     : shoppingProducts.filter(p => selectedIds.has(String(p.campaignId)));
+  const campaignPrevShoppingProducts = isAll ? prevShoppingProducts : prevShoppingProducts.filter(p => selectedIds.has(String(p.campaignId)));
+
+  const campaignAds = isAll ? ads : ads.filter(a => selectedIds.has(String(a.campaignId)));
   const scored  = [...campaignAds].sort((a, b) => scoreAd(b.metrics) - scoreAd(a.metrics));
   const cut     = Math.max(1, Math.ceil(scored.length * 0.2));
   const topIds  = new Set(scored.slice(0, cut).map(a => a.id));
@@ -1167,10 +1430,21 @@ export default function GoogleAdsDashboard() {
           <div style={{ maxWidth: 1300, margin: "0 auto", padding: "14px 32px" }}>
             <div style={{ marginBottom: 12 }}>
               <span style={{ fontSize: 10, fontWeight: 600, color: C.grey, textTransform: "uppercase", letterSpacing: "0.1em" }}>Campaigns</span>
+              <span style={{ fontSize: 10, color: C.grey }}>
+                {selectedRealIds.length >= 2
+                  ? `${selectedRealIds.length} selected — comparing`
+                  : "click campaigns to compare them"}
+              </span>
+              {selectedRealIds.length > 0 && (
+                <button onClick={selectAll} style={{
+                  padding: "2px 8px", borderRadius: 4, border: `1px solid ${C.border}`,
+                  background: "transparent", color: C.grey, fontSize: 10, cursor: "pointer",
+                }}>Clear</button>
+              )}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 8 }}>
               {(() => {
-                const isSelected = activeCamId === "__all__";
+                const isSelected = isAll;
                 const allAdsSpend  = ads.reduce((s, a) => s + (a.metrics?.spend || 0), 0);
                 const allShopSpend = shoppingProducts.reduce((s, p) => s + (p.spend || 0), 0);
                 const allSpend = allAdsSpend + allShopSpend;
@@ -1178,7 +1452,7 @@ export default function GoogleAdsDashboard() {
                 const allShopConvs = shoppingProducts.reduce((s, p) => s + (p.conversions || 0), 0);
                 const allConvs = allAdsConvs + allShopConvs;
                 return (
-                  <button onClick={() => setActiveCamId("__all__")} style={{
+                  <button onClick={selectAll} style={{
                     padding: "10px 12px", borderRadius: 8, textAlign: "left", cursor: "pointer",
                     border: `1px solid ${isSelected ? C.blue + "44" : "transparent"}`,
                     borderBottom: `2px solid ${isSelected ? C.blue : "transparent"}`,
@@ -1193,20 +1467,25 @@ export default function GoogleAdsDashboard() {
               })()}
               {campaigns
                 .filter(c => camFilter === "all" || c.status === "ENABLED")
+                .map(c => ({ ...c, metrics: camMetrics(c, ads, shoppingProducts) }))
+                .sort(byCostPerConversion)
                 .map(c => {
-                  const isSelected  = activeCamId === c.id;
+                  const isSelected  = selectedIds.has(String(c.id));
                   const isActive    = c.status === "ENABLED";
                   const isShopping  = c.channelType === "SHOPPING";
                   const isPMax      = c.channelType === "PERFORMANCE_MAX";
                   const isSearch    = c.channelType === "SEARCH";
                   const isDisplay   = c.channelType === "DISPLAY";
-                  const camAds      = isShopping
-                    ? shoppingProducts.filter(p => p.campaignId === c.id)
-                    : ads.filter(a => a.campaignId === c.id);
-                  const spend = camAds.reduce((s, x) => s + (isShopping ? x.spend : x.metrics?.spend || 0), 0);
-                  const convs = camAds.reduce((s, x) => s + (isShopping ? x.conversions : x.metrics?.conversions || 0), 0);
+                  const spend = c.metrics.spend;
+                  const convs = c.metrics.conversions;
                   return (
-                    <button key={c.id} onClick={() => setActiveCamId(c.id)} style={{
+                    <div key={c.id} role="checkbox" aria-checked={isSelected} tabIndex={0}
+                      onClick={() => toggleId(c.id)}
+                      onKeyDown={e => {
+                        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleId(c.id); }
+                      }}
+                      title={`${isSelected ? "Remove" : "Add"} ${c.name}`}
+                      style={{
                       padding: "10px 12px", borderRadius: 8, textAlign: "left", cursor: "pointer",
                       border: "1px solid transparent",
                       borderBottom: `2px solid ${isSelected ? C.blue : "transparent"}`,
@@ -1214,6 +1493,15 @@ export default function GoogleAdsDashboard() {
                       transition: "all 0.15s", opacity: isActive ? 1 : 0.5,
                     }}>
                       <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 5 }}>
+                        <div aria-hidden="true"
+                          style={{
+                            width: 12, height: 12, borderRadius: 3, flexShrink: 0, marginTop: 1,
+                            border: `1px solid ${isSelected ? C.blue : C.grey}`,
+                            background: isSelected ? C.blue : "transparent",
+                            display: "grid", placeItems: "center",
+                          }}>
+                          {isSelected && <span style={{ fontSize: 9, lineHeight: 1, fontWeight: 800, color: C.black }}>✓</span>}
+                        </div>
                         <div style={{ width: 6, height: 6, borderRadius: "50%", background: isActive ? C.green : C.grey, flexShrink: 0, marginTop: 4 }} />
                         <span style={{ fontSize: 12, fontWeight: 500, color: isSelected ? C.white : C.lightGrey, lineHeight: 1.4 }}>{c.name}</span>
                         {isShopping && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.goldDim, border: `1px solid ${C.gold}44`, color: C.gold, flexShrink: 0, letterSpacing: "0.04em", marginTop: 2 }}>SHOP</span>}
@@ -1227,7 +1515,7 @@ export default function GoogleAdsDashboard() {
                       {!isActive && (
                         <div style={{ fontSize: 9, color: C.grey, marginTop: 3, fontFamily: "'Inter', sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>Paused</div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
             </div>
@@ -1256,9 +1544,11 @@ export default function GoogleAdsDashboard() {
 
         {!loading && (
           <>
+            {isCompare && <CampaignCompare rows={compareRows} />}
+
             {isShoppingCampaign ? (
               <>
-                {activeCamId && campaignShoppingProducts.length > 0 && (
+                {campaignShoppingProducts.length > 0 && (
                   <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>
                     {account?.name} · {isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`} · {campaignShoppingProducts.length} products
                   </div>
@@ -1269,17 +1559,19 @@ export default function GoogleAdsDashboard() {
                     <ShoppingProductsTable products={campaignShoppingProducts} />
                   </>
                 )}
-                {campaignShoppingProducts.length === 0 && !error && activeCamId && (
+                {campaignShoppingProducts.length === 0 && !error && (
                   <div style={{ textAlign: "center", padding: "60px 0", color: C.lightGrey, fontSize: 13 }}>
-                    No shopping data found for this campaign in the selected date range.
+                    No shopping data found for this selection in the chosen date range.
                   </div>
                 )}
               </>
             ) : (
               <>
-                {activeCamId && campaignAds.length > 0 && (
+                {campaignAds.length > 0 && (
                   <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>
                     {account?.name} · {isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`} · {campaignAds.length} ads
+                  
+                    {isCompare && ` across ${compareRows.length} campaigns`}
                   </div>
                 )}
 
@@ -1287,7 +1579,7 @@ export default function GoogleAdsDashboard() {
                   <>
                     <SummaryBar ads={campaignAds} prevMap={prevMap} />
                     <InsightsPanel ads={campaignAds} prevMap={prevMap} />
-                    <KeywordSummary keywords={activeCamId === "__all__" ? keywords : keywords.filter(kw => kw.campaignId === activeCamId)} />
+                    <KeywordSummary keywords={isAll ? keywords : keywords.filter(kw => selectedIds.has(String(kw.campaignId)))} />
 
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginRight: 4 }}>Ads</span>
@@ -1312,9 +1604,9 @@ export default function GoogleAdsDashboard() {
                   </>
                 )}
 
-                {campaignAds.length === 0 && !error && activeCamId && (
+                {campaignAds.length === 0 && !error && (
                   <div style={{ textAlign: "center", padding: "60px 0", color: C.lightGrey, fontSize: 13 }}>
-                    No ad data found for this campaign in the selected date range.
+                    No ad data found for this selection in the chosen date range.
                   </div>
                 )}
               </>
