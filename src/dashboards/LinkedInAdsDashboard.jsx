@@ -43,12 +43,31 @@ async function liApiFetch(path) {
   return json;
 }
 
+// The /v2 `q=account` finders are retired (404 RESOURCE_NOT_FOUND), and the /rest
+// collections ignore `start` — they page by an opaque metadata.nextPageToken cursor.
+async function fetchRestPages(pathBase, { cap = 5 } = {}) {
+  const out = [];
+  let token = null;
+  for (let page = 0; page < cap; page++) {
+    const sep  = pathBase.includes("?") ? "&" : "?";
+    const path = `${pathBase}${sep}count=100${token ? `&pageToken=${encodeURIComponent(token)}` : ""}`;
+    const data = await liApiFetch(path);
+    const els  = data.elements || [];
+    out.push(...els);
+    token = data.metadata?.nextPageToken;
+    if (!token || els.length < 100) break;
+  }
+  return out;
+}
+
 async function fetchCampaigns(accountId) {
-  const urn = encodeURIComponent(`urn:li:sponsoredAccount:${accountId}`);
-  const data = await liApiFetch(
-    `/v2/adCampaignsV2?q=account&account=${urn}&count=50&fields=id,name,status,type`
-  );
-  return data.elements || [];
+  const els = await fetchRestPages(`/rest/adAccounts/${accountId}/adCampaigns?q=search`);
+  return els.map(c => ({
+    id:     String(c.id),
+    name:   c.name,
+    status: c.status,
+    type:   c.type || c.format || null,
+  }));
 }
 
 async function fetchCampaignsByIds(campaignIds) {
@@ -61,11 +80,17 @@ async function fetchCampaignsByIds(campaignIds) {
 }
 
 async function fetchCreatives(accountId) {
-  const urn = encodeURIComponent(`urn:li:sponsoredAccount:${accountId}`);
-  const data = await liApiFetch(
-    `/v2/adCreativesV2?q=account&account=${urn}&count=100&fields=id,name,status,campaign,variables,reference,changeAuditStamps`
-  );
-  return (data.elements || []).filter(c => c.status !== 'REMOVED' && c.status !== 'DELETED');
+  const els = await fetchRestPages(`/rest/adAccounts/${accountId}/creatives?q=criteria`);
+  // Deliberately no `status` on the result. The old per-id GETs returned no status
+  // field either, so ads carried null and passed the "Active only" filter; mapping
+  // intendedStatus here instead would hide the 86% of creatives that are PAUSED.
+  return els.map(c => ({
+    id:        String(c.id).split(":").pop(),
+    name:      c.name || null,
+    campaign:  c.campaign,
+    reference: c.content?.reference || null,
+    changeAuditStamps: { created: { time: c.createdAt } },
+  }));
 }
 
 // The rendered ad preview is the only view that shows the creative as LinkedIn
@@ -131,11 +156,26 @@ function parseCreativeContent(creative) {
   return { name: null, imageUrn: null, referenceUrn: creativeRef };
 }
 
+// Reading post text needs r_organization_social; an ads-only token gets 403
+// ACCESS_DENIED on every one of these. Probing one URN per kind first means a narrow
+// token costs 2 requests rather than one per ad (~165). The tradeoff is that a single
+// unlucky failure skips its whole kind — acceptable against 11s of certain waste.
+async function probeReadable(path) {
+  return liApiFetch(path).then(() => true).catch(() => false);
+}
+
 async function fetchPostData(postUrns) {
   if (!postUrns.length) return { names: {}, imageUrls: {}, carouselUrns: new Set() };
   const names = {}, imageUrls = {}, carouselUrns = new Set();
-  const ugcUrns   = postUrns.filter(u => u.includes("ugcPost"));
-  const shareUrns = postUrns.filter(u => u.includes(":share:") || u.includes(":activity:"));
+  let ugcUrns   = postUrns.filter(u => u.includes("ugcPost"));
+  let shareUrns = postUrns.filter(u => u.includes(":share:") || u.includes(":activity:"));
+
+  const [ugcOk, shareOk] = await Promise.all([
+    ugcUrns.length   ? probeReadable(`/v2/ugcPosts/${encodeURIComponent(ugcUrns[0])}`) : false,
+    shareUrns.length ? probeReadable(`/v2/shares/${encodeURIComponent(shareUrns[0])}`) : false,
+  ]);
+  if (!ugcOk)   ugcUrns   = [];
+  if (!shareOk) shareUrns = [];
   if (ugcUrns.length) {
     await Promise.all(ugcUrns.map(async urn => {
       try {
@@ -780,12 +820,16 @@ export default function LinkedInAdsDashboard() {
       const camIds = campaignAnalytics.map(el => (el.pivotValues?.[0] || "").split(":").pop()).filter(Boolean);
       const creativeIds = creativeAnalytics.map(el => (el.pivotValues?.[0] || "").split(":").pop()).filter(Boolean);
 
-      const [rawCampaigns, rawCreatives, fetchedCampaigns, fetchedCreatives] = await Promise.all([
+      const [rawCampaigns, rawCreatives] = await Promise.all([
         fetchCampaigns(ACCOUNT.id).catch(() => []),
         fetchCreatives(ACCOUNT.id).catch(() => []),
-        fetchCampaignsByIds(camIds),
-        fetchCreativesByIds(creativeIds),
       ]);
+
+      // Per-id GETs are a fallback, not a parallel belt-and-braces. Running them
+      // alongside the batch cost one request per creative — 165 of them, ~12s of the
+      // load — even when the batch had already returned everything.
+      const resolvedCampaigns = rawCampaigns.length ? rawCampaigns : await fetchCampaignsByIds(camIds);
+      const resolvedCreatives = rawCreatives.length ? rawCreatives : await fetchCreativesByIds(creativeIds);
 
       const toMetrics = (el) => {
         const imp  = parseInt(el.impressions || 0);
@@ -801,9 +845,6 @@ export default function LinkedInAdsDashboard() {
         const id = String((el.pivotValues?.[0] || "").split(":").pop() || "");
         if (id) camAnalyticsMap[id] = toMetrics(el);
       });
-
-      const resolvedCampaigns = rawCampaigns.length ? rawCampaigns : fetchedCampaigns;
-      const resolvedCreatives = rawCreatives.length ? rawCreatives : fetchedCreatives;
 
       const campaigns = resolvedCampaigns.length
         ? resolvedCampaigns.map(c => ({ ...c, metrics: camAnalyticsMap[String(c.id)] || zeroMetrics }))
@@ -861,7 +902,10 @@ export default function LinkedInAdsDashboard() {
                           || (meta.referenceUrn && postImageUrls[meta.referenceUrn])
                           || null;
             const camName  = resolvedCampaigns.find(c => String(c.id) === camId)?.name || null;
-            const name     = meta.name || (meta.referenceUrn && postNames[meta.referenceUrn]) || camName || `Ad #${id.slice(-6)}`;
+            // Post copy reads best but needs organic scopes; the creative's own name is
+            // ad-level and distinguishable, so it beats repeating the campaign name.
+            const name     = meta.name || (meta.referenceUrn && postNames[meta.referenceUrn])
+                          || creative?.name || camName || `Ad #${id.slice(-6)}`;
             const isCarousel = meta.referenceUrn ? carouselUrns.has(meta.referenceUrn) : false;
             return { id, campaignId: camId, name, imageUrl, isCarousel, createdTime: created, status: creative?.status || null, metrics: toMetrics(el) };
           })

@@ -95,6 +95,17 @@ async function callLinkedIn(liPath, token) {
   return { status: upstream.status, data, url: liUrl };
 }
 
+// Vercel's edge cache serves repeat loads without re-hitting LinkedIn. Everything
+// here is one shared ad account with no per-viewer content, so a shared cache is
+// safe. Ad previews get a shorter TTL than their ~3h src expiry so a cached entry
+// can never outlive the iframe URL inside it. Only successful reads are cached —
+// caching an auth failure would pin the dashboard in a broken state for the TTL.
+function cacheSecondsFor(liPath) {
+  if (liPath.startsWith("/rest/adPreviews")) return 1800;      // 30m, well under ~3h
+  if (liPath.includes("/adAnalyticsV2"))     return 900;       // 15m; updates hourly at best
+  return 900;                                                  // campaigns, creatives
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -139,6 +150,11 @@ module.exports = async function handler(req, res) {
 
     if (status < 200 || status >= 300) {
       data._debugUrl = url;
+    } else {
+      const secs = cacheSecondsFor(liPath);
+      // stale-while-revalidate lets the edge answer instantly from a slightly stale
+      // entry while it refreshes behind the request, so nobody waits on LinkedIn.
+      res.setHeader("Cache-Control", `public, s-maxage=${secs}, stale-while-revalidate=${secs * 2}`);
     }
     return res.status(status).json(data);
 
