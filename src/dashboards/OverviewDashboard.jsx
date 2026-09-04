@@ -196,7 +196,7 @@ function PlatformSection({ title, accentColor, metrics, loading }) {
         {loading && <span style={{ fontSize: 11, color: C.grey, fontFamily: "'Inter', sans-serif" }}>Loading…</span>}
       </div>
       {!loading && metrics.length > 0 && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
           {metrics.map(m => <MetricCard key={m.label} {...m} />)}
         </div>
       )}
@@ -272,7 +272,7 @@ export default function OverviewDashboard() {
       `}</style>
 
       <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
-        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48 }}>
+        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "8px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 48, flexWrap: "wrap", gap: "8px 16px" }}>
         <span style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>Performance Overview</span>
         <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
           {[7, 14, 30, 60, 90].map(d => (

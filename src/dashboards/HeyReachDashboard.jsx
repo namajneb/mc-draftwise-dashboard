@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useIsNarrow } from "../hooks/useIsNarrow";
 
 const C = {
   white:     "#FFFFFF",
@@ -106,49 +107,114 @@ function SummaryBar({ stats }) {
   );
 }
 
+// Columns as data, so the wide grid and the stacked cards below render from one
+// definition instead of drifting apart. `render` returns the value node; the
+// campaign name is handled separately since it titles the stacked card.
+const HR_COLS = [
+  { label: "Status",     render: c => <StatusBadge status={c.status} /> },
+  { label: "Requests",   render: (c, s) => <Stat>{fmt(s.connectionsSent)}</Stat> },
+  { label: "Accepted",   render: (c, s) => <Stat>{fmt(s.connectionsAccepted)}</Stat> },
+  { label: "Acc. Rate",  render: (c, s) => {
+      const v = s.connectionAcceptanceRate != null ? s.connectionAcceptanceRate * 100 : null;
+      return <Stat color={v > 30 ? C.green : v > 15 ? C.gold : C.lightGrey}>{fmtPct(v)}</Stat>;
+    } },
+  { label: "Messages",   render: (c, s) => <Stat>{fmt(s.messagesSent)}</Stat> },
+  { label: "Replies",    render: (c, s) => <Stat>{fmt(s.totalMessageReplies)}</Stat> },
+  { label: "Reply Rate", render: (c, s) => {
+      const v = s.messageReplyRate != null ? s.messageReplyRate * 100 : null;
+      return <Stat color={v > 20 ? C.green : v > 10 ? C.gold : C.lightGrey}>{fmtPct(v)}</Stat>;
+    } },
+];
+
+function Stat({ children, color }) {
+  return (
+    <div style={{ fontSize: 13, fontWeight: 600, color: color || C.offWhite, fontFamily: "'Inter', sans-serif" }}>
+      {children}
+    </div>
+  );
+}
+
+// The eight fixed columns total ~590px of hard widths plus a 2fr name column and
+// 40px of padding, so below this they stack rather than overflow.
+const HR_STACK_AT = 900;
+
+function CampaignName({ c, showDisconnected }) {
+  return (
+    <>
+      <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
+      {showDisconnected && (
+        <div style={{ fontSize: 9, color: C.red, fontFamily: "'Inter', sans-serif", letterSpacing: "0.08em", marginTop: 2 }}>SENDER DISCONNECTED</div>
+      )}
+    </>
+  );
+}
+
+const hrDisconnected = c => {
+  const s = c.stats || {};
+  const finished = c.status === "FINISHED" || c.status === "COMPLETED";
+  return finished && !c.campaignAccountIds?.length && !s.connectionsSent && !s.messagesSent;
+};
+
 function CampaignTable({ campaigns }) {
+  const stacked = useIsNarrow(HR_STACK_AT);
   if (!campaigns.length) return null;
+
+  const TEMPLATE = "2fr 100px 90px 80px 80px 80px 80px 80px";
+
+  if (stacked) {
+    return (
+      <div style={{ display: "grid", gap: 8 }}>
+        {campaigns.map(c => {
+          const s = c.stats || {};
+          return (
+            <div key={c.id} style={{ background: C.charcoal, border: `1px solid ${C.border}`, borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ marginBottom: 10 }}>
+                <CampaignName c={c} showDisconnected={hrDisconnected(c)} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(92px, 1fr))", gap: "10px 10px" }}>
+                {HR_COLS.map(col => (
+                  <div key={col.label}>
+                    <div style={{ fontSize: 9, color: C.grey, fontFamily: "'Inter', sans-serif", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{col.label}</div>
+                    {col.render(c, s)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <div style={{ borderRadius: 10, border: `1px solid ${C.border}`, overflow: "hidden" }}>
       {/* Header */}
       <div style={{
         display: "grid",
-        gridTemplateColumns: "2fr 100px 90px 80px 80px 80px 80px 80px",
+        gridTemplateColumns: TEMPLATE,
         gap: 0, background: C.charcoal,
         borderBottom: `1px solid ${C.border}`,
         padding: "10px 20px",
       }}>
-        {["Campaign", "Status", "Requests", "Accepted", "Acc. Rate", "Messages", "Replies", "Reply Rate"].map(h => (
+        {["Campaign", ...HR_COLS.map(c => c.label)].map(h => (
           <div key={h} style={{ fontSize: 10, color: C.grey, fontFamily: "'Inter', sans-serif", textTransform: "uppercase", letterSpacing: "0.07em" }}>{h}</div>
         ))}
       </div>
 
       {campaigns.map((c, i) => {
         const s = c.stats || {};
-        const isFinished = c.status === "FINISHED" || c.status === "COMPLETED";
-        const senderDisconnected = isFinished && !c.campaignAccountIds?.length && !s.connectionsSent && !s.messagesSent;
         return (
           <div key={c.id} style={{
             display: "grid",
-            gridTemplateColumns: "2fr 100px 90px 80px 80px 80px 80px 80px",
+            gridTemplateColumns: TEMPLATE,
             gap: 0, padding: "14px 20px", alignItems: "center",
             borderBottom: i < campaigns.length - 1 ? `1px solid ${C.border}` : "none",
             background: i % 2 === 0 ? C.charcoal : C.surface,
           }}>
             <div style={{ paddingRight: 16, overflow: "hidden" }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</div>
-              {senderDisconnected && (
-                <div style={{ fontSize: 9, color: C.red, fontFamily: "'Inter', sans-serif", letterSpacing: "0.08em", marginTop: 2 }}>SENDER DISCONNECTED</div>
-              )}
+              <CampaignName c={c} showDisconnected={hrDisconnected(c)} />
             </div>
-            <div><StatusBadge status={c.status} /></div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.connectionsSent)}</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.connectionsAccepted)}</div>
-            {(() => { const v = s.connectionAcceptanceRate != null ? s.connectionAcceptanceRate * 100 : null; return <div style={{ fontSize: 13, fontWeight: 600, color: v > 30 ? C.green : v > 15 ? C.gold : C.lightGrey, fontFamily: "'Inter', sans-serif" }}>{fmtPct(v)}</div>; })()}
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.messagesSent)}</div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: C.offWhite, fontFamily: "'Inter', sans-serif" }}>{fmt(s.totalMessageReplies)}</div>
-            {(() => { const v = s.messageReplyRate != null ? s.messageReplyRate * 100 : null; return <div style={{ fontSize: 13, fontWeight: 600, color: v > 20 ? C.green : v > 10 ? C.gold : C.lightGrey, fontFamily: "'Inter', sans-serif" }}>{fmtPct(v)}</div>; })()}
+            {HR_COLS.map(col => <div key={col.label}>{col.render(c, s)}</div>)}
           </div>
         );
       })}

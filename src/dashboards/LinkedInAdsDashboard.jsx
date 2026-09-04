@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useIsNarrow } from "../hooks/useIsNarrow";
 
 const C = {
   white:     "#FFFFFF",
@@ -688,22 +689,6 @@ function bestWorst(rows, key, dir, zeroMissing) {
 // campaign instead. Stacking keeps every figure reachable; a drag bar hides half of
 // them behind a gesture.
 const COMPARE_STACK_AT = 1360;
-
-function useIsNarrow(px) {
-  const query = `(max-width: ${px}px)`;
-  const [narrow, setNarrow] = useState(
-    () => typeof window !== "undefined" && !!window.matchMedia && window.matchMedia(query).matches
-  );
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-    const mq = window.matchMedia(query);
-    const onChange = e => setNarrow(e.matches);
-    setNarrow(mq.matches);            // re-sync in case it changed before this ran
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, [query]);
-  return narrow;
-}
 
 function CampaignCompare({ rows }) {
   const stacked = useIsNarrow(COMPARE_STACK_AT);   // before the early return: hooks are unconditional

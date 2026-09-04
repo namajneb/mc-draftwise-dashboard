@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useIsNarrow } from "../hooks/useIsNarrow";
 
 // ── Brand Tokens ──────────────────────────────────────────────────────────────
 const C = {
@@ -308,7 +309,7 @@ function AdRow({ ad, isTop, isBottom }) {
         </div>
       </div>
 
-      <div style={{ display: "flex", flex: "1 1 480px", alignItems: "flex-start" }}>
+      <div style={{ display: "flex", flex: "1 1 480px", alignItems: "flex-start", flexWrap: "wrap", rowGap: 14 }}>
         <ScoreBadge score={score} />
         <MetricCell label="Impr."      value={fmt(m.impressions)} />
         <MetricCell label="Clicks"     value={fmt(m.clicks)} />
@@ -524,7 +525,7 @@ function InsightsPanel({ ads, prevMap }) {
           <div style={{ fontSize: 11, color: C.grey, fontFamily: "'Inter', sans-serif", marginTop: 2 }}>{insights.length} recommendation{insights.length !== 1 ? "s" : ""} based on current performance</div>
         </div>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10 }}>
         {insights.map((ins, i) => {
           const clr = INSIGHT_COLORS[ins.type];
           return (
@@ -558,7 +559,62 @@ const KW_SORT_COLS = [
   { key: "spend",       label: "Spend" },
 ];
 
+// Both Google Ads tables pack eight columns into ~440px of hard widths plus a
+// flexible first column, so below this they stack into one card per row with each
+// figure labelled, instead of overflowing into a horizontal scrollbar.
+const GA_TABLE_STACK_AT = 900;
+
+function GaCell({ children, color, size = 12 }) {
+  return <div style={{ fontSize: size, color: color || C.lightGrey }}>{children}</div>;
+}
+
+// Columns as data so the wide grid and the stacked cards render from one source.
+// The first column titles the stacked card, so it is kept out of the metric list.
+const GA_KEYWORD_COLS = [
+  { label: "Match",  render: kw => {
+      const mc = MATCH_COLORS[kw.matchType] || MATCH_COLORS.BROAD;
+      return <div><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: mc.bg, border: `1px solid ${mc.border}`, color: mc.text, letterSpacing: "0.05em" }}>{kw.matchType}</span></div>;
+    } },
+  { label: "Impr.",  render: kw => <GaCell>{fmt(kw.impressions)}</GaCell> },
+  { label: "Clicks", render: kw => <GaCell>{fmt(kw.clicks)}</GaCell> },
+  { label: "CTR",    render: kw => <GaCell>{fmtCTR(kw.ctr)}</GaCell> },
+  { label: "CPC",    render: kw => <GaCell color={kw.averageCpc > 0 ? scoreColor(Math.max(1 - kw.averageCpc / 25, 0) * 100) : C.lightGrey}>{fmtCPC(kw.averageCpc)}</GaCell> },
+  { label: "Conv.",  render: kw => <GaCell>{fmt(kw.conversions)}</GaCell> },
+  { label: "Spend",  render: kw => <GaCell>{fmtUSD(kw.spend)}</GaCell> },
+];
+
+const GA_PRODUCT_COLS = [
+  { label: "Brand",  render: p => <GaCell size={11}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>{p.brand || "—"}</span></GaCell> },
+  { label: "Impr.",  render: p => <GaCell>{fmt(p.impressions)}</GaCell> },
+  { label: "Clicks", render: p => <GaCell>{fmt(p.clicks)}</GaCell> },
+  { label: "CTR",    render: p => <GaCell>{fmtCTR(p.ctr)}</GaCell> },
+  { label: "CPC",    render: p => <GaCell color={p.averageCpc > 0 ? scoreColor(Math.max(1 - p.averageCpc / 25, 0) * 100) : C.lightGrey}>{fmtCPC(p.averageCpc)}</GaCell> },
+  { label: "Conv.",  render: p => <GaCell>{fmt(p.conversions)}</GaCell> },
+  { label: "Spend",  render: p => <GaCell>{fmtUSD(p.spend)}</GaCell> },
+];
+
+function GaStackedRows({ rows, cols, titleOf, keyOf }) {
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      {rows.map((r, i) => (
+        <div key={keyOf ? keyOf(r, i) : i} style={{ background: "#0a0a0a", border: `1px solid ${C.border}`, borderRadius: 8, padding: "10px 12px" }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.offWhite, marginBottom: 9 }}>{titleOf(r)}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: "9px 10px" }}>
+            {cols.map(col => (
+              <div key={col.label}>
+                <div style={{ fontSize: 9, color: C.grey, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3, fontFamily: "'Inter', sans-serif" }}>{col.label}</div>
+                {col.render(r)}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function KeywordSummary({ keywords }) {
+  const stacked = useIsNarrow(GA_TABLE_STACK_AT);
   const [sortBy, setSortBy]   = useState("impressions");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -605,28 +661,23 @@ function KeywordSummary({ keywords }) {
         </div>
       </div>
 
+      {stacked ? (
+        <GaStackedRows rows={sorted} cols={GA_KEYWORD_COLS} titleOf={kw => kw.text} />
+      ) : (<>
       {/* Header row */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 70px 60px 60px 60px 60px 70px", gap: 8, padding: "4px 10px", marginBottom: 4 }}>
-        {["Keyword", "Match", "Impr.", "Clicks", "CTR", "CPC", "Conv.", "Spend"].map(h => (
+        {["Keyword", ...GA_KEYWORD_COLS.map(c => c.label)].map(h => (
           <div key={h} style={{ fontSize: 10, color: C.grey, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: "'Inter', sans-serif" }}>{h}</div>
         ))}
       </div>
 
-      {sorted.map((kw, i) => {
-        const mc = MATCH_COLORS[kw.matchType] || MATCH_COLORS.BROAD;
-        return (
-          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 70px 60px 60px 60px 60px 70px", gap: 8, padding: "8px 10px", borderRadius: 6, background: i % 2 === 0 ? "#0a0a0a" : "transparent", alignItems: "center" }}>
-            <div style={{ fontSize: 12, fontWeight: 500, color: C.offWhite, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kw.text}</div>
-            <div><span style={{ fontSize: 9, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: mc.bg, border: `1px solid ${mc.border}`, color: mc.text, letterSpacing: "0.05em" }}>{kw.matchType}</span></div>
-            <div style={{ fontSize: 12, color: C.lightGrey }}>{fmt(kw.impressions)}</div>
-            <div style={{ fontSize: 12, color: C.lightGrey }}>{fmt(kw.clicks)}</div>
-            <div style={{ fontSize: 12, color: C.lightGrey }}>{fmtCTR(kw.ctr)}</div>
-            <div style={{ fontSize: 12, color: kw.averageCpc > 0 ? scoreColor(Math.max(1 - kw.averageCpc / 25, 0) * 100) : C.lightGrey }}>{fmtCPC(kw.averageCpc)}</div>
-            <div style={{ fontSize: 12, color: C.lightGrey }}>{fmt(kw.conversions)}</div>
-            <div style={{ fontSize: 12, color: C.lightGrey }}>{fmtUSD(kw.spend)}</div>
-          </div>
-        );
-      })}
+      {sorted.map((kw, i) => (
+        <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 80px 70px 60px 60px 60px 60px 70px", gap: 8, padding: "8px 10px", borderRadius: 6, background: i % 2 === 0 ? "#0a0a0a" : "transparent", alignItems: "center" }}>
+          <div style={{ fontSize: 12, fontWeight: 500, color: C.offWhite, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{kw.text}</div>
+          {GA_KEYWORD_COLS.map(col => <div key={col.label}>{col.render(kw)}</div>)}
+        </div>
+      ))}
+      </>)}
     </div>
   );
 }
@@ -691,6 +742,7 @@ const SHOP_SORT_COLS = [
 ];
 
 function ShoppingProductsTable({ products }) {
+  const stacked = useIsNarrow(GA_TABLE_STACK_AT);
   const [sortBy, setSortBy]   = useState("impressions");
   const [sortDir, setSortDir] = useState("desc");
 
@@ -737,8 +789,11 @@ function ShoppingProductsTable({ products }) {
         </div>
       </div>
 
+      {stacked ? (
+        <GaStackedRows rows={sorted} cols={GA_PRODUCT_COLS} titleOf={p => p.title} />
+      ) : (<>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 70px 60px 60px 60px 60px 70px", gap: 8, padding: "4px 10px", marginBottom: 4 }}>
-        {["Product", "Brand", "Impr.", "Clicks", "CTR", "CPC", "Conv.", "Spend"].map(h => (
+        {["Product", ...GA_PRODUCT_COLS.map(c => c.label)].map(h => (
           <div key={h} style={{ fontSize: 10, color: C.grey, textTransform: "uppercase", letterSpacing: "0.07em", fontFamily: "'Inter', sans-serif" }}>{h}</div>
         ))}
       </div>
@@ -746,15 +801,10 @@ function ShoppingProductsTable({ products }) {
       {sorted.map((p, i) => (
         <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 100px 70px 60px 60px 60px 60px 70px", gap: 8, padding: "8px 10px", borderRadius: 6, background: i % 2 === 0 ? "#0a0a0a" : "transparent", alignItems: "center" }}>
           <div style={{ fontSize: 12, fontWeight: 500, color: C.offWhite, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.title}</div>
-          <div style={{ fontSize: 11, color: C.lightGrey, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.brand || "—"}</div>
-          <div style={{ fontSize: 12, color: C.lightGrey }}>{fmt(p.impressions)}</div>
-          <div style={{ fontSize: 12, color: C.lightGrey }}>{fmt(p.clicks)}</div>
-          <div style={{ fontSize: 12, color: C.lightGrey }}>{fmtCTR(p.ctr)}</div>
-          <div style={{ fontSize: 12, color: p.averageCpc > 0 ? scoreColor(Math.max(1 - p.averageCpc / 25, 0) * 100) : C.lightGrey }}>{fmtCPC(p.averageCpc)}</div>
-          <div style={{ fontSize: 12, color: C.lightGrey }}>{fmt(p.conversions)}</div>
-          <div style={{ fontSize: 12, color: C.lightGrey }}>{fmtUSD(p.spend)}</div>
+          {GA_PRODUCT_COLS.map(col => <div key={col.label}>{col.render(p)}</div>)}
         </div>
       ))}
+      </>)}
     </div>
   );
 }
@@ -1052,7 +1102,7 @@ export default function GoogleAdsDashboard() {
 
       {/* ── Title + Day Range + Active Toggle ── */}
       <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
-        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 48 }}>
+        <div style={{ maxWidth: 1300, margin: "0 auto", padding: "8px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 48, flexWrap: "wrap", gap: "8px 16px" }}>
         <span style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>Google Ads Performance</span>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
