@@ -341,13 +341,23 @@ const THUMB_COLORS = ["#dde3ea","#d6dde6","#e2ddd8","#d8e2dd","#e0dae2","#dde0e2
 // which 403 without r_organization_social — that is a token problem, not a layout one.
 const CARD_COPY_H = 260;   // unscaled px — actor header plus about four lines of copy
 
+// Thumbnail size. Every dimension inside CreativeThumb is expressed as a multiple of
+// THUMB_W so the whole tile — iframe scale, corner radius, carousel chip, placeholder
+// glyph — grows evenly from this one number. 374 is the 187px original doubled.
+const THUMB_W        = 374;
+const THUMB_NARROW_W = 187;   // 374 + the row's padding and page gutters overflows a phone
+const THUMB_NARROW_AT = 480;
+
 function CreativeThumb({ name, imageUrl, previewSrc, isCarousel }) {
+  const w = useIsNarrow(THUMB_NARROW_AT) ? THUMB_NARROW_W : THUMB_W;
+  const u = px => Math.round(px * w / 187);   // scale a 187-era dimension to the current width
+
   if (previewSrc) {
-    const scale  = 187 / 552;
+    const scale  = w / 552;
     const frameH = Math.round((isCarousel ? CARD_COPY_H : 552) * scale);
     return (
-      <div style={{ width: 187, borderRadius: 8, flexShrink: 0, overflow: "hidden", border: `1px solid ${C.border}`, background: C.surface }}>
-        <div style={{ width: 187, height: frameH, overflow: "hidden", position: "relative" }}>
+      <div style={{ width: w, borderRadius: u(8), flexShrink: 0, overflow: "hidden", border: `1px solid ${C.border}`, background: C.surface }}>
+        <div style={{ width: w, height: frameH, overflow: "hidden", position: "relative" }}>
           <iframe
             src={previewSrc}
             title={name}
@@ -356,9 +366,9 @@ function CreativeThumb({ name, imageUrl, previewSrc, isCarousel }) {
           />
         </div>
         {isCarousel && (
-          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 8px", background: C.charcoal, borderTop: `1px solid ${C.border}` }}>
-            <svg width="10" height="10" viewBox="0 0 11 11" fill="none"><rect x="0" y="0" width="5" height="5" rx="1" fill={C.lightGrey}/><rect x="6" y="0" width="5" height="5" rx="1" fill={C.lightGrey}/><rect x="0" y="6" width="5" height="5" rx="1" fill={C.lightGrey}/><rect x="6" y="6" width="5" height="5" rx="1" fill={C.lightGrey}/></svg>
-            <span style={{ fontSize: 9, fontWeight: 600, color: C.lightGrey, letterSpacing: "0.05em", textTransform: "uppercase" }}>Carousel</span>
+          <div style={{ display: "flex", alignItems: "center", gap: u(5), padding: `${u(6)}px ${u(8)}px`, background: C.charcoal, borderTop: `1px solid ${C.border}` }}>
+            <svg width={u(10)} height={u(10)} viewBox="0 0 11 11" fill="none"><rect x="0" y="0" width="5" height="5" rx="1" fill={C.lightGrey}/><rect x="6" y="0" width="5" height="5" rx="1" fill={C.lightGrey}/><rect x="0" y="6" width="5" height="5" rx="1" fill={C.lightGrey}/><rect x="6" y="6" width="5" height="5" rx="1" fill={C.lightGrey}/></svg>
+            <span style={{ fontSize: u(9), fontWeight: 600, color: C.lightGrey, letterSpacing: "0.05em", textTransform: "uppercase" }}>Carousel</span>
           </div>
         )}
       </div>
@@ -366,11 +376,11 @@ function CreativeThumb({ name, imageUrl, previewSrc, isCarousel }) {
   }
   if (imageUrl) {
     return (
-      <div style={{ position: "relative", flexShrink: 0, width: 187, height: 187 }}>
-        <img src={imageUrl} alt={name} style={{ width: 187, height: 187, borderRadius: 8, objectFit: "cover", border: `1px solid ${C.border}`, display: "block" }} />
+      <div style={{ position: "relative", flexShrink: 0, width: w, height: w }}>
+        <img src={imageUrl} alt={name} style={{ width: w, height: w, borderRadius: u(8), objectFit: "cover", border: `1px solid ${C.border}`, display: "block" }} />
         {isCarousel && (
-          <div style={{ position: "absolute", top: 5, right: 5, background: "rgba(0,0,0,0.72)", borderRadius: 4, width: 18, height: 18, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <svg width="11" height="11" viewBox="0 0 11 11" fill="none"><rect x="0" y="0" width="5" height="5" rx="1" fill="#fff"/><rect x="6" y="0" width="5" height="5" rx="1" fill="#fff"/><rect x="0" y="6" width="5" height="5" rx="1" fill="#fff"/><rect x="6" y="6" width="5" height="5" rx="1" fill="#fff"/></svg>
+          <div style={{ position: "absolute", top: u(5), right: u(5), background: "rgba(0,0,0,0.72)", borderRadius: u(4), width: u(18), height: u(18), display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width={u(11)} height={u(11)} viewBox="0 0 11 11" fill="none"><rect x="0" y="0" width="5" height="5" rx="1" fill="#fff"/><rect x="6" y="0" width="5" height="5" rx="1" fill="#fff"/><rect x="0" y="6" width="5" height="5" rx="1" fill="#fff"/><rect x="6" y="6" width="5" height="5" rx="1" fill="#fff"/></svg>
           </div>
         )}
       </div>
@@ -383,12 +393,12 @@ function CreativeThumb({ name, imageUrl, previewSrc, isCarousel }) {
   const accent   = accents[colorIdx];
   const displayName = name ? name.slice(0, 60) : "Ad Creative";
   return (
-    <div style={{ width: 187, height: 187, borderRadius: 8, flexShrink: 0, background: bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, border: `1px solid rgba(255,255,255,0.07)` }}>
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <div style={{ width: w, height: w, borderRadius: u(8), flexShrink: 0, background: bg, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: u(10), border: `1px solid rgba(255,255,255,0.07)` }}>
+      <svg width={u(24)} height={u(24)} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect width="24" height="24" rx="4" fill={accent} opacity="0.18"/>
         <path d="M6 8h2v8H6V8zm5-1a3 3 0 0 1 3 3v5h-2v-5a1 1 0 0 0-1-1 1 1 0 0 0-1 1v5h-2V7h2v.93A3 3 0 0 1 11 7z" fill={accent}/>
       </svg>
-      <span style={{ fontSize: 11, fontWeight: 500, color: "#c8cdd4", textAlign: "center", padding: "0 12px", lineHeight: 1.4, wordBreak: "break-word" }}>{displayName}</span>
+      <span style={{ fontSize: u(11), fontWeight: 500, color: "#c8cdd4", textAlign: "center", padding: `0 ${u(12)}px`, lineHeight: 1.4, wordBreak: "break-word" }}>{displayName}</span>
     </div>
   );
 }
