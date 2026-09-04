@@ -145,15 +145,20 @@ function parseCreativeContent(creative) {
     ? creative.reference
     : (creative?.reference?.["$URN"] || null);
   const data = creative?.variables?.data || {};
+  // LinkedIn names the variables type after the ad format, so a carousel says so itself:
+  // com.linkedin.ads.SponsoredUpdateCarouselCreativeVariables. That matters because the
+  // post lookups that used to spot a multi-image share need r_organization_social, and
+  // this dashboard's token routinely lacks it — carouselUrns comes back empty.
+  const isCarousel = Object.keys(data).some(k => /Carousel/i.test(k));
   for (const key of Object.keys(data)) {
     const d   = data[key];
     const usc = d.userSelectedContent || d;
     const name = usc.headline || usc.title || d.title || d.headline || d.text || null;
     const imageUrn     = findMediaUrn(d);
     const referenceUrn = creativeRef || d.activity || null;
-    if (name || imageUrn || referenceUrn) return { name: name || null, imageUrn, referenceUrn };
+    if (name || imageUrn || referenceUrn) return { name: name || null, imageUrn, referenceUrn, isCarousel };
   }
-  return { name: null, imageUrn: null, referenceUrn: creativeRef };
+  return { name: null, imageUrn: null, referenceUrn: creativeRef, isCarousel };
 }
 
 // Reading post text needs r_organization_social; an ads-only token gets 403
@@ -329,17 +334,33 @@ function fmtCPConv(spend, conv) { return conv > 0 ? fmtUSD(spend / conv) : "—"
 
 const THUMB_COLORS = ["#dde3ea","#d6dde6","#e2ddd8","#d8e2dd","#e0dae2","#dde0e2","#e2e0d8","#d8dce2","#e2d8dd","#dadada"];
 
+// A carousel is the one format the embedded preview cannot draw. LinkedIn renders the
+// actor header and the ad copy, then lays its media strip out at zero height, so the rest
+// of the tile is empty white that reads as a broken thumbnail. Crop to the part that does
+// render and label the rest. The slides themselves live on /rest/posts and /v2/shares,
+// which 403 without r_organization_social — that is a token problem, not a layout one.
+const CARD_COPY_H = 260;   // unscaled px — actor header plus about four lines of copy
+
 function CreativeThumb({ name, imageUrl, previewSrc, isCarousel }) {
   if (previewSrc) {
-    const scale = 187 / 552;
+    const scale  = 187 / 552;
+    const frameH = Math.round((isCarousel ? CARD_COPY_H : 552) * scale);
     return (
-      <div style={{ width: 187, height: 187, borderRadius: 8, flexShrink: 0, overflow: "hidden", border: `1px solid ${C.border}`, background: C.surface, position: "relative" }}>
-        <iframe
-          src={previewSrc}
-          title={name}
-          scrolling="no"
-          style={{ width: 552, height: Math.ceil(187 / scale), transform: `scale(${scale})`, transformOrigin: "top left", border: "none", pointerEvents: "none" }}
-        />
+      <div style={{ width: 187, borderRadius: 8, flexShrink: 0, overflow: "hidden", border: `1px solid ${C.border}`, background: C.surface }}>
+        <div style={{ width: 187, height: frameH, overflow: "hidden", position: "relative" }}>
+          <iframe
+            src={previewSrc}
+            title={name}
+            scrolling="no"
+            style={{ position: "absolute", left: 0, top: 0, width: 552, height: 552, transform: `scale(${scale})`, transformOrigin: "top left", border: "none", pointerEvents: "none", display: "block" }}
+          />
+        </div>
+        {isCarousel && (
+          <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 8px", background: C.charcoal, borderTop: `1px solid ${C.border}` }}>
+            <svg width="10" height="10" viewBox="0 0 11 11" fill="none"><rect x="0" y="0" width="5" height="5" rx="1" fill={C.lightGrey}/><rect x="6" y="0" width="5" height="5" rx="1" fill={C.lightGrey}/><rect x="0" y="6" width="5" height="5" rx="1" fill={C.lightGrey}/><rect x="6" y="6" width="5" height="5" rx="1" fill={C.lightGrey}/></svg>
+            <span style={{ fontSize: 9, fontWeight: 600, color: C.lightGrey, letterSpacing: "0.05em", textTransform: "uppercase" }}>Carousel</span>
+          </div>
+        )}
       </div>
     );
   }
@@ -961,7 +982,7 @@ export default function LinkedInAdsDashboard() {
             // ad-level and distinguishable, so it beats repeating the campaign name.
             const name     = meta.name || (meta.referenceUrn && postNames[meta.referenceUrn])
                           || creative?.name || camName || `Ad #${id.slice(-6)}`;
-            const isCarousel = meta.referenceUrn ? carouselUrns.has(meta.referenceUrn) : false;
+            const isCarousel = meta.isCarousel || (meta.referenceUrn ? carouselUrns.has(meta.referenceUrn) : false);
             return { id, campaignId: camId, name, imageUrl, isCarousel, createdTime: created, status: creative?.status || null, metrics: toMetrics(el) };
           })
         : campaignAnalytics.map(el => {
