@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useIsNarrow } from "../hooks/useIsNarrow";
+import { CustomRangeButton, customDates, customLabel, toIsoDay } from "../components/CustomRange";
 
 // ── Brand Tokens ──────────────────────────────────────────────────────────────
 const C = {
@@ -44,6 +45,11 @@ function getTrailingMonths(count = 5) {
 function getDateRange(value) {
   const pad = n => String(n).padStart(2, "0");
   const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const c = customDates(value);
+  if (c) return {
+    current: { since: toIsoDay(c.start), until: toIsoDay(c.end) },
+    prev:    { since: toIsoDay(c.prevStart), until: toIsoDay(c.prevEnd) },
+  };
   if (isMonthKey(value)) {
     const [y, m] = value.split("-").map(Number);
     const start    = new Date(y, m - 1, 1);
@@ -1388,6 +1394,7 @@ export default function GoogleAdsDashboard() {
                 fontSize: 11, transition: "all 0.15s",
               }}>{m.label}</button>
             ))}
+          <CustomRangeButton value={days} onApply={handleDaySwitch} colors={{ active: C.blue, white: C.white, grey: C.grey, border: C.border }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <span style={{ fontSize: 11, color: C.grey, fontFamily: "'Inter', sans-serif" }}>Active only</span>
@@ -1552,7 +1559,7 @@ export default function GoogleAdsDashboard() {
               <>
                 {campaignShoppingProducts.length > 0 && (
                   <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>
-                    {account?.name} · {isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`} · {campaignShoppingProducts.length} products
+                    {account?.name} · {customLabel(days) || (isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`)} · {campaignShoppingProducts.length} products
                   </div>
                 )}
                 {campaignShoppingProducts.length > 0 && (
@@ -1571,7 +1578,7 @@ export default function GoogleAdsDashboard() {
               <>
                 {campaignAds.length > 0 && (
                   <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>
-                    {account?.name} · {isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`} · {campaignAds.length} ads
+                    {account?.name} · {customLabel(days) || (isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`)} · {campaignAds.length} ads
                   
                     {isCompare && ` across ${compareRows.length} campaigns`}
                   </div>

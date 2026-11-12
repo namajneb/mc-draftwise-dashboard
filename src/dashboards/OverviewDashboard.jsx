@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { CustomRangeButton, customDates, customLabel, toIsoDay } from "../components/CustomRange";
 
 const C = {
   white:     "#FFFFFF",
@@ -45,6 +46,11 @@ function getTrailingMonths(count = 5) {
 function getDateRange(value) {
   const pad = n => String(n).padStart(2, "0");
   const fmt = d => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const c = customDates(value);
+  if (c) return {
+    current: { since: toIsoDay(c.start), until: toIsoDay(c.end) },
+    prev:    { since: toIsoDay(c.prevStart), until: toIsoDay(c.prevEnd) },
+  };
   if (isMonthKey(value)) {
     const [y, m] = value.split("-").map(Number);
     const start    = new Date(y, m - 1, 1);
@@ -281,7 +287,7 @@ export default function OverviewDashboard() {
       <div style={{ background: C.black, borderBottom: "1px solid #1a1a1a" }}>
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "8px 32px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 48, flexWrap: "wrap", gap: "8px 16px" }}>
         <span style={{ color: C.white, fontWeight: 700, fontSize: 14 }}>Performance Overview</span>
-        <div style={{ display: "flex", gap: 3, alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 3, alignItems: "center", flexWrap: "wrap" }}>
           {[7, 14, 30, 60, 90].map(d => (
             <button key={d} onClick={() => handleDaySwitch(d)} style={{
               padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer",
@@ -299,6 +305,7 @@ export default function OverviewDashboard() {
               fontSize: 11, transition: "all 0.15s",
             }}>{m.label}</button>
           ))}
+        <CustomRangeButton value={days} onApply={handleDaySwitch} colors={{ active: C.blue, white: C.white, grey: C.grey, border: C.border }} />
         </div>
       </div>
       </div>

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { useIsNarrow } from "../hooks/useIsNarrow";
+import { CustomRangeButton, customDates, customLabel, toIsoDay } from "../components/CustomRange";
 
 const C = {
   white:     "#FFFFFF",
@@ -280,6 +281,8 @@ function getTrailingMonths(count = 5) {
 
 function getLiDateRange(value) {
   const toObj = d => ({ day: d.getDate(), month: d.getMonth() + 1, year: d.getFullYear() });
+  const c = customDates(value);
+  if (c) return { current: { start: toObj(c.start), end: toObj(c.end) }, prev: { start: toObj(c.prevStart), end: toObj(c.prevEnd) } };
   if (isMonthKey(value)) {
     const [y, m] = value.split("-").map(Number);
     const start    = new Date(y, m - 1, 1);
@@ -1193,6 +1196,7 @@ export default function LinkedInAdsDashboard() {
                 fontSize: 11, transition: "all 0.15s",
               }}>{m.label}</button>
             ))}
+          <CustomRangeButton value={days} onApply={handleDaySwitch} colors={{ active: C.blue, white: C.white, grey: C.grey, border: C.border }} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
             <span style={{ fontSize: 11, color: C.grey }}>Active only</span>
@@ -1329,7 +1333,7 @@ export default function LinkedInAdsDashboard() {
           <>
             {campaignAds.length > 0 && (
               <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>
-                {ACCOUNT.name} Ad Account · {isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`} · {campaignAds.length} ads
+                {ACCOUNT.name} Ad Account · {customLabel(days) || (isMonthKey(days) ? (getTrailingMonths().find(m => m.key === days)?.label || days) : `Last ${days} days`)} · {campaignAds.length} ads
                 {isCompare && ` across ${compareRows.length} campaigns`}
               </div>
             )}

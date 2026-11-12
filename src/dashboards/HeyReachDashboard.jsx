@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useIsNarrow } from "../hooks/useIsNarrow";
+import { CustomRangeButton, customDates, customLabel, toIsoDay } from "../components/CustomRange";
 
 const C = {
   white:     "#FFFFFF",
@@ -35,9 +36,10 @@ async function hrFetch(path, body, internal = false) {
 }
 
 function getDateRange(days) {
-  const end   = new Date();
-  const start = new Date();
-  start.setDate(start.getDate() - days + 1);
+  const c     = customDates(days);
+  const end   = c ? new Date(c.end) : new Date();
+  const start = c ? new Date(c.start) : new Date();
+  if (!c) start.setDate(start.getDate() - days + 1);
   start.setHours(0, 0, 0, 0);
   end.setHours(23, 59, 59, 999);
   return { startDate: start.toISOString(), endDate: end.toISOString() };
@@ -362,7 +364,7 @@ export default function HeyReachDashboard() {
         <div style={{ maxWidth: 1300, margin: "0 auto", padding: "0 32px", display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 56, gap: 16, flexWrap: "wrap" }}>
         <span style={{ color: C.white, fontWeight: 700, fontSize: 14, letterSpacing: "0.01em" }}>HeyReach Outreach</span>
 
-        <div style={{ display: "flex", gap: 3 }}>
+        <div style={{ display: "flex", gap: 3, alignItems: "center", flexWrap: "wrap" }}>
           {[7, 14, 30, 60, 90].map(d => (
             <button key={d} onClick={() => handleDaySwitch(d)} style={{
               padding: "4px 10px", borderRadius: 5, border: "none", cursor: "pointer",
@@ -371,6 +373,7 @@ export default function HeyReachDashboard() {
               fontSize: 11, transition: "all 0.15s",
             }}>{d}d</button>
           ))}
+        <CustomRangeButton value={days} onApply={handleDaySwitch} colors={{ active: C.green, white: C.white, grey: C.grey, border: C.border }} />
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -410,7 +413,7 @@ export default function HeyReachDashboard() {
           <>
             {overallStats && (
               <>
-                <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>Last {days} days · {campaigns.length} campaigns</div>
+                <div style={{ fontSize: 11, color: C.grey, marginBottom: 16 }}>{customLabel(days) || `Last ${days} days`} · {campaigns.length} campaigns</div>
 <SummaryBar stats={overallStats} />
               </>
             )}
