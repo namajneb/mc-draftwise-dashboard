@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { CustomRangeButton, customDates, customLabel, toIsoDay } from "../components/CustomRange";
 import ReportCharts from "../report/ReportCharts";
+import VisitRateCard, { ManualDataFlag } from "../report/VisitRateCard";
+import DemoRequestCards from "../report/DemoRequestCards";
 
 const C = {
   white:     "#FFFFFF",
@@ -312,6 +314,11 @@ export default function OverviewDashboard() {
       </div>
 
       <div style={{ maxWidth: 1300, margin: "0 auto", padding: "32px 32px" }}>
+        <div style={{ display: "grid", gap: 16, marginBottom: 32 }}>
+          <DemoRequestCards />
+          <VisitRateCard />
+        </div>
+
         {error && (
           <div style={{ background: C.charcoal, border: `1px solid ${C.red}44`, borderRadius: 10, padding: "18px 22px", marginBottom: 24 }}>
             <div style={{ color: C.red, fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Error</div>
@@ -337,7 +344,9 @@ export default function OverviewDashboard() {
           <div style={{ width: 3, height: 18, borderRadius: 2, background: "#9085e9" }} />
           <span style={{ fontSize: 13, fontWeight: 700, color: C.offWhite, fontFamily: "'Inter', sans-serif", letterSpacing: "0.01em" }}>Traffic and demo requests</span>
         </div>
-        <div style={{ fontSize: 11, color: C.lightGrey, marginBottom: 16 }}>From the Nov 2026 traffic report (data through Nov 15). A fixed snapshot: these charts don't follow the date buttons above.</div>
+        <div style={{ marginBottom: 16 }}>
+          <ManualDataFlag>From the Nov 2026 traffic report, data through Nov 15. Built from HubSpot, Google Analytics, Search Console and Meta exports that were pulled by hand, so these charts don't update or follow the date buttons.</ManualDataFlag>
+        </div>
         <ReportCharts />
       </div>
     </div>
