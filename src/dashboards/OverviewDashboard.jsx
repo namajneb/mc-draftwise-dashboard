@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { CustomRangeButton, customDates, customLabel, toIsoDay } from "../components/CustomRange";
-import AnalysisCharts from "../components/AnalysisCharts";
+import ReportCharts from "../report/ReportCharts";
 
 const C = {
   white:     "#FFFFFF",
@@ -333,7 +333,12 @@ export default function OverviewDashboard() {
         )}
 
         <div style={{ height: 1, background: C.border, margin: "8px 0 32px" }} />
-        <AnalysisCharts />
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+          <div style={{ width: 3, height: 18, borderRadius: 2, background: "#9085e9" }} />
+          <span style={{ fontSize: 13, fontWeight: 700, color: C.offWhite, fontFamily: "'Inter', sans-serif", letterSpacing: "0.01em" }}>Traffic and demo requests</span>
+        </div>
+        <div style={{ fontSize: 11, color: C.lightGrey, marginBottom: 16 }}>From the Nov 2026 traffic report (data through Nov 15). A fixed snapshot: these charts don't follow the date buttons above.</div>
+        <ReportCharts />
       </div>
     </div>
   );
