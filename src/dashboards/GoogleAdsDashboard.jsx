@@ -185,6 +185,81 @@ async function fetchAds(customerId, since, until) {
   });
 }
 
+// YouTube (Video campaign) ads, with the video metrics the generic ad query lacks.
+// Field names are the API v24 ones: video_trueview_views / video_trueview_view_rate.
+async function fetchVideoAds(customerId, since, until) {
+  return gaApiFetch({
+    customerId,
+    q: encodeURIComponent(
+      `SELECT
+         ad_group_ad.ad.id,
+         ad_group_ad.ad.name,
+         ad_group_ad.ad.video_responsive_ad.videos,
+         ad_group_ad.ad.video_responsive_ad.long_headlines,
+         campaign.id,
+         campaign.name,
+         campaign.status,
+         metrics.impressions,
+         metrics.clicks,
+         metrics.cost_micros,
+         metrics.conversions,
+         metrics.video_trueview_views,
+         metrics.video_trueview_view_rate,
+         metrics.video_quartile_p25_rate,
+         metrics.video_quartile_p50_rate,
+         metrics.video_quartile_p75_rate,
+         metrics.video_quartile_p100_rate
+       FROM ad_group_ad
+       WHERE
+         campaign.advertising_channel_type = 'VIDEO'
+         AND ad_group_ad.status = 'ENABLED'
+         AND segments.date BETWEEN '${since}' AND '${until}'`
+    ),
+  });
+}
+
+async function fetchYouTubeAssets(customerId) {
+  return gaApiFetch({
+    customerId,
+    q: encodeURIComponent(
+      `SELECT asset.resource_name, asset.youtube_video_asset.youtube_video_id, asset.youtube_video_asset.youtube_video_title
+       FROM asset
+       WHERE asset.type = 'YOUTUBE_VIDEO'`
+    ),
+  });
+}
+
+const isVideoAd = a => (a.adType || "").startsWith("VIDEO");
+
+// The image behind each Display / Demand Gen ad. The ads themselves don't carry it;
+// ad_group_ad_asset_view links each ad to its image assets, which have a hosted URL.
+const IMAGE_FIELD_RANK = { CLASSIC_DISPLAY_IMAGE: 0, MARKETING_IMAGE: 1, SQUARE_MARKETING_IMAGE: 2, PORTRAIT_MARKETING_IMAGE: 3 };
+async function fetchAdImages(customerId) {
+  const res = await gaApiFetch({
+    customerId,
+    q: encodeURIComponent(
+      `SELECT ad_group_ad_asset_view.ad_group_ad, ad_group_ad_asset_view.field_type,
+         asset.image_asset.full_size.url, asset.image_asset.full_size.width_pixels, asset.image_asset.full_size.height_pixels
+       FROM ad_group_ad_asset_view
+       WHERE campaign.advertising_channel_type IN ('DEMAND_GEN', 'DISPLAY')
+         AND ad_group_ad_asset_view.enabled = TRUE
+         AND asset.type = 'IMAGE'`
+    ),
+  });
+  const best = {};
+  (res.results || []).forEach(r => {
+    const v = r.adGroupAdAssetView || {};
+    const rank = IMAGE_FIELD_RANK[v.fieldType];
+    const img = r.asset?.imageAsset?.fullSize;
+    if (rank == null || !img?.url) return;
+    const adId = String(v.adGroupAd || "").split("~").pop();
+    if (!best[adId] || rank < best[adId].rank) {
+      best[adId] = { rank, url: img.url, w: parseInt(img.widthPixels || 0), h: parseInt(img.heightPixels || 0) };
+    }
+  });
+  return best;
+}
+
 async function fetchPMaxAssetGroups(customerId, since, until) {
   return gaApiFetch({
     customerId,
@@ -485,9 +560,103 @@ const fmtCPC = n  => n > 0 ? "$" + Number(n).toLocaleString("en-US", { minimumFr
 const fmtCPConv = (spend, conv) => conv > 0 ? fmtUSD(spend / conv) : "—";
 
 // ── Components ─────────────────────────────────────────────────────────────────
+function pctTxt(v) { return v > 0 ? Math.round(v * 100) + "%" : "—"; }
+
+function YouTubeSection({ videos }) {
+  if (!videos.length) return null;
+  const views = videos.reduce((s, v) => s + v.views, 0);
+  const impr  = videos.reduce((s, v) => s + v.impressions, 0);
+  const spend = videos.reduce((s, v) => s + v.spend, 0);
+  // Impression-weighted, so a small ad doesn't swing the totals.
+  const wavg  = k => impr > 0 ? videos.reduce((s, v) => s + v[k] * v.impressions, 0) / impr : 0;
+  const sorted = [...videos].sort((a, b) => b.spend - a.spend);
+  const stat = (label, value) => (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 10, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: C.offWhite }}>{value}</div>
+    </div>
+  );
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 10 }}>
+        <span style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em" }}>YouTube</span>
+        <span style={{ fontSize: 11, color: C.grey }}>{videos.length} video ad{videos.length === 1 ? "" : "s"}</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 12, background: C.charcoal, border: `1px solid ${C.border}`, borderRadius: 10, padding: "14px 18px", marginBottom: 10 }}>
+        {stat("Spend", fmtUSD(spend))}
+        {stat("Impressions", fmt(impr))}
+        {stat("Views", fmt(views))}
+        {stat("View rate", pctTxt(wavg("viewRate")))}
+        {stat("Avg. CPV", views > 0 ? "$" + (spend / views).toFixed(2) : "—")}
+        {stat("Watched to end", pctTxt(wavg("q100")))}
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 300px), 1fr))", gap: 10 }}>
+        {sorted.map(v => <VideoCard key={v.id} v={v} />)}
+      </div>
+    </div>
+  );
+}
+
+function VideoCard({ v }) {
+  const url = v.videoId ? `https://www.youtube.com/watch?v=${v.videoId}` : null;
+  const cell = (label, value) => (
+    <div>
+      <div style={{ fontSize: 9, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: C.offWhite }}>{value}</div>
+    </div>
+  );
+  return (
+    <div style={{ background: C.charcoal, border: `1px solid ${C.border}`, borderRadius: 10, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+      {v.videoId ? (
+        <a href={url} target="_blank" rel="noopener noreferrer" title="Watch on YouTube" style={{ display: "block", position: "relative", aspectRatio: "16 / 9", background: "#000" }}>
+          <img src={`https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`} alt={v.videoTitle || v.name} loading="lazy"
+            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+          <span style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 44, height: 30, borderRadius: 8, background: "rgba(0,0,0,0.7)", display: "grid", placeItems: "center", color: C.white, fontSize: 14 }}>▶</span>
+        </a>
+      ) : (
+        <div style={{ aspectRatio: "16 / 9", background: "#111", display: "grid", placeItems: "center", color: C.grey, fontSize: 11 }}>No video</div>
+      )}
+      <div style={{ padding: "12px 14px", display: "grid", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: C.offWhite, lineHeight: 1.35 }}>{v.videoTitle || v.name || `Ad #${v.id}`}</div>
+          <div style={{ fontSize: 11, color: C.grey, marginTop: 3 }}>{[v.headline, v.campaignName].filter(Boolean).join(" · ")}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(72px, 1fr))", gap: 10 }}>
+          {cell("Spend", fmtUSD(v.spend))}
+          {cell("Impr.", fmt(v.impressions))}
+          {cell("Views", fmt(v.views))}
+          {cell("View rate", pctTxt(v.viewRate))}
+          {cell("CPV", v.views > 0 ? "$" + v.cpv.toFixed(2) : "—")}
+          {cell("Clicks", fmt(v.clicks))}
+        </div>
+        <div>
+          <div style={{ fontSize: 9, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6 }}>Watched through</div>
+          {[["25%", v.q25], ["50%", v.q50], ["75%", v.q75], ["100%", v.q100]].map(([label, rate]) => (
+            <div key={label} style={{ display: "grid", gridTemplateColumns: "34px 1fr 36px", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 10, color: C.grey }}>{label}</span>
+              <div style={{ height: 6, borderRadius: 3, background: C.border, overflow: "hidden" }}>
+                <div style={{ width: `${Math.min(rate, 1) * 100}%`, height: "100%", borderRadius: 3, background: C.blue }} />
+              </div>
+              <span style={{ fontSize: 11, color: C.offWhite, textAlign: "right" }}>{pctTxt(rate)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const THUMB_COLORS = ["#dde3ea","#d6dde6","#e2ddd8","#d8e2dd","#e0dae2","#dde0e2","#e2e0d8","#d8dce2","#e2d8dd","#dadada"];
 
-function AdThumb({ name, type }) {
+function AdThumb({ name, type, image }) {
+  if (image?.url) {
+    return (
+      <a href={image.url} target="_blank" rel="noopener noreferrer" title={`Open full size${image.w ? ` (${image.w}×${image.h})` : ""}`}
+        style={{ width: 72, height: 72, borderRadius: 8, flexShrink: 0, background: "#fff", border: `1px solid ${C.border}`, display: "grid", placeItems: "center", overflow: "hidden" }}>
+        <img src={image.url} alt={name || "Ad image"} loading="lazy" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain", display: "block" }} />
+      </a>
+    );
+  }
   const color = THUMB_COLORS[Math.abs((name?.charCodeAt(0) ?? 0) + (name?.charCodeAt(2) ?? 0)) % THUMB_COLORS.length];
   const icon  = type === "PERFORMANCE_MAX" ? "⚡" : type?.includes("RESPONSIVE_DISPLAY") ? "🖼️" : type?.includes("TEXT") ? "📝" : "📣";
   return (
@@ -537,7 +706,7 @@ function AdRow({ ad, isTop, isBottom }) {
       background: isTop ? C.greenDim : isBottom ? C.redDim : C.charcoal,
       border: `1px solid ${isTop ? C.green + "44" : isBottom ? C.red + "44" : C.border}`,
     }}>
-      <AdThumb name={ad.name} type={ad.adType} />
+      <AdThumb name={ad.name} type={ad.adType} image={ad.image} />
 
       <div style={{ flex: "1 1 220px", minWidth: 180 }}>
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8, flexWrap: "wrap", marginBottom: 3 }}>
@@ -1084,6 +1253,7 @@ export default function GoogleAdsDashboard() {
   const [accountIdx, setAccountIdx]                     = useState(0);
   const [campaigns, setCampaigns]                       = useState([]);
   const [ads, setAds]                                   = useState([]);
+  const [videoAds, setVideoAds]                         = useState([]);
   const [keywords, setKeywords]                         = useState([]);
   const [shoppingProducts, setShoppingProducts]         = useState([]);
   const [prevShoppingProducts, setPrevShoppingProducts] = useState([]);
@@ -1103,7 +1273,7 @@ export default function GoogleAdsDashboard() {
   // Load ad data for selected account + date range
   const loadData = useCallback(async (acct, daysN) => {
     if (!acct) return;
-    setLoading(true); setError(null); setCampaigns([]); setAds([]); setKeywords([]); setShoppingProducts([]); setPrevShoppingProducts([]); setSelectedIds(new Set(["__all__"]));
+    setLoading(true); setError(null); setCampaigns([]); setAds([]); setVideoAds([]); setKeywords([]); setShoppingProducts([]); setPrevShoppingProducts([]); setSelectedIds(new Set(["__all__"]));
     try {
       const { current, prev } = getDateRange(daysN);
       const [camRes, adsRes, prevAdsRes, kwRes, shopRes, prevShopRes, pmaxRes, prevPmaxRes] = await Promise.all([
@@ -1116,6 +1286,33 @@ export default function GoogleAdsDashboard() {
         fetchPMaxAssetGroups(acct.id, current.since, current.until).catch(() => ({ results: [] })),
         fetchPMaxAssetGroups(acct.id, prev.since, prev.until).catch(() => ({ results: [] })),
       ]);
+      // YouTube is extra detail: a failure here must not take down the rest of the tab.
+      const [vidRes, ytRes] = await Promise.all([
+        fetchVideoAds(acct.id, current.since, current.until).catch(() => ({ results: [] })),
+        fetchYouTubeAssets(acct.id).catch(() => ({ results: [] })),
+      ]);
+      const adImages = await fetchAdImages(acct.id).catch(() => ({}));
+      const ytByAsset = {};
+      (ytRes.results || []).forEach(r => {
+        const y = r.asset?.youtubeVideoAsset;
+        if (r.asset?.resourceName && y?.youtubeVideoId) ytByAsset[r.asset.resourceName] = { id: y.youtubeVideoId, title: y.youtubeVideoTitle || "" };
+      });
+      setVideoAds((vidRes.results || []).map(r => {
+        const ad = r.adGroupAd?.ad || {};
+        const vid = ytByAsset[ad.videoResponsiveAd?.videos?.[0]?.asset] || null;
+        const m = r.metrics || {};
+        const spend = micros(m.costMicros), views = parseInt(m.videoTrueviewViews || 0);
+        return {
+          id: String(ad.id), name: ad.name || "", headline: ad.videoResponsiveAd?.longHeadlines?.[0]?.text || "",
+          videoId: vid?.id || null, videoTitle: vid?.title || "",
+          campaignId: String(r.campaign?.id), campaignName: r.campaign?.name || "",
+          impressions: parseInt(m.impressions || 0), clicks: parseInt(m.clicks || 0), spend,
+          conversions: parseFloat(m.conversions || 0), views,
+          viewRate: parseFloat(m.videoTrueviewViewRate || 0), cpv: views > 0 ? spend / views : 0,
+          q25: parseFloat(m.videoQuartileP25Rate || 0), q50: parseFloat(m.videoQuartileP50Rate || 0),
+          q75: parseFloat(m.videoQuartileP75Rate || 0), q100: parseFloat(m.videoQuartileP100Rate || 0),
+        };
+      }).filter(v => v.id));
 
       const rawCampaigns = (camRes.results || []).map(r => ({
         id:          String(r.campaign.id),
@@ -1166,6 +1363,7 @@ export default function GoogleAdsDashboard() {
         id:           r.adGroupAd?.ad?.id,
         name:         r.adGroupAd?.ad?.name || "",
         adType:       r.adGroupAd?.ad?.type || "",
+        image:        adImages[String(r.adGroupAd?.ad?.id)] || null,
         status:       r.adGroupAd?.status,
         headlines,
         descriptions,
@@ -1325,7 +1523,11 @@ export default function GoogleAdsDashboard() {
   const campaignPrevShoppingProducts = isAll ? prevShoppingProducts : prevShoppingProducts.filter(p => selectedIds.has(String(p.campaignId)));
 
   const campaignAds = isAll ? ads : ads.filter(a => selectedIds.has(String(a.campaignId)));
-  const scored  = [...campaignAds].sort((a, b) => scoreAd(b.metrics) - scoreAd(a.metrics));
+  // Video ads get their own YouTube section (views, view rate, watch-through), so they
+  // are left out of the text/display ad rows, where CTR-based scoring would misjudge them.
+  const rowAds = campaignAds.filter(a => !isVideoAd(a));
+  const campaignVideoAds = (isAll ? videoAds : videoAds.filter(v => selectedIds.has(v.campaignId))).filter(v => v.impressions > 0);
+  const scored  = [...rowAds].sort((a, b) => scoreAd(b.metrics) - scoreAd(a.metrics));
   const cut     = Math.max(1, Math.ceil(scored.length * 0.2));
   const topIds  = new Set(scored.slice(0, cut).map(a => a.id));
   const botIds  = new Set(scored.slice(-cut).map(a => a.id));
@@ -1350,7 +1552,7 @@ export default function GoogleAdsDashboard() {
     return m[key] || 0;
   };
 
-  const sortedAds = [...campaignAds].sort((a, b) => {
+  const sortedAds = [...rowAds].sort((a, b) => {
     const diff = sortVal(b, sortBy) - sortVal(a, sortBy);
     return sortDir === "desc" ? diff : -diff;
   });
@@ -1485,6 +1687,7 @@ export default function GoogleAdsDashboard() {
                   const isPMax      = c.channelType === "PERFORMANCE_MAX";
                   const isSearch    = c.channelType === "SEARCH";
                   const isDisplay   = c.channelType === "DISPLAY";
+                  const isVideo     = c.channelType === "VIDEO";
                   const spend = c.metrics.spend;
                   const convs = c.metrics.conversions;
                   return (
@@ -1516,6 +1719,7 @@ export default function GoogleAdsDashboard() {
                         {isShopping && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.goldDim, border: `1px solid ${C.gold}44`, color: C.gold, flexShrink: 0, letterSpacing: "0.04em", marginTop: 2 }}>SHOP</span>}
                         {isPMax     && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.blueDim, border: `1px solid ${C.blue}44`, color: C.blue, flexShrink: 0, letterSpacing: "0.04em", marginTop: 2 }}>PMAX</span>}
                         {isSearch   && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.greenDim, border: `1px solid ${C.green}44`, color: C.green, flexShrink: 0, letterSpacing: "0.04em", marginTop: 2 }}>SEARCH</span>}
+                        {isVideo    && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.goldDim, border: `1px solid ${C.gold}44`, color: C.gold, flexShrink: 0, letterSpacing: "0.04em", marginTop: 2 }}>YOUTUBE</span>}
                         {isDisplay  && <span style={{ fontSize: 8, fontWeight: 700, padding: "1px 5px", borderRadius: 3, background: C.redDim, border: `1px solid ${C.red}44`, color: C.red, flexShrink: 0, letterSpacing: "0.04em", marginTop: 2 }}>DISPLAY</span>}
                       </div>
                       {!loading && (spend > 0 || convs > 0) && (
@@ -1587,8 +1791,9 @@ export default function GoogleAdsDashboard() {
                 {campaignAds.length > 0 && (
                   <>
                     <SummaryBar ads={campaignAds} prevMap={prevMap} />
-                    <InsightsPanel ads={campaignAds} prevMap={prevMap} />
+                    <InsightsPanel ads={rowAds} prevMap={prevMap} />
                     <KeywordSummary keywords={isAll ? keywords : keywords.filter(kw => selectedIds.has(String(kw.campaignId)))} />
+                    <YouTubeSection videos={campaignVideoAds} />
 
                     <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 10, fontWeight: 600, color: C.lightGrey, textTransform: "uppercase", letterSpacing: "0.1em", marginRight: 4 }}>Ads</span>
