@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { CustomRangeButton, customDates, customLabel, toIsoDay } from "../components/CustomRange";
+import AnalysisCharts from "../components/AnalysisCharts";
 
 const C = {
   white:     "#FFFFFF",
@@ -330,6 +331,9 @@ export default function OverviewDashboard() {
             <PlatformSection title="Google Ads"   accentColor={C.gold}   metrics={gMetrics}  loading={false} />
           </>
         )}
+
+        <div style={{ height: 1, background: C.border, margin: "8px 0 32px" }} />
+        <AnalysisCharts />
       </div>
     </div>
   );
